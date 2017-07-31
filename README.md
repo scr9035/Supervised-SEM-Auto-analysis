@@ -4,7 +4,11 @@ Supervised SEM/STEM image auto-analysis
 
 ## Run
 
-Run the start.py file from cmd or IDE. Load images and corresponding plugin to analyze.
+Run 
+```
+python start.py 
+```
+in cmd to start the main image viewer. Spyder can also run the code with no problems. Load images and corresponding plugin in the main image viewer to analyze.
 
 ## API Reference
 

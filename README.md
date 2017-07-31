@@ -8,9 +8,11 @@ Run
 ```
 python start.py 
 ```
-in cmd to start the main image viewer. Spyder can also run the code with no problems. Load images and corresponding plugin in the main image viewer to analyze.
+in cmd to start the main image viewer. `Spyder` can also run the code with no problems. Load images and corresponding plugin in the main image viewer to analyze.
 
 ## API Reference
+
+Required packages include: `numpy`, `pandas`, `scipy`, `scikit-image`, `PyQt5` etc.
 
 The package contans two parts: UI and algorithm. 
 

@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-#
-# Copyright © 2017 Dongyao Li
 
 import os
 import sys
@@ -13,7 +11,7 @@ import skimage.external.tifffile as read_tiff
 
 from ..qt import QtWidgets, Qt
 from PyQt5.QtWidgets import (QLabel, QPushButton, QCheckBox, QComboBox, QLineEdit, 
-                             QApplication, QDialog)
+                             QApplication, QDialog, QMessageBox)
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5 import (QtGui, QtCore)
 from ..utils import (dialogs, init_qtapp, figimage, start_qtapp,
@@ -53,7 +51,12 @@ def mpl_image_to_rgba(mpl_image):
 
 
 class NavigationToolbar(NavigationToolbar2QT):
-    """Customized navigation tool bar"""
+    """Customized navigation tool bar from mpl
+    
+    Only choose certain functionality from the original toolbar. Also modify
+    the interaction with mouse for better user experience
+    
+    """
     toolitems = [t for t in NavigationToolbar2QT.toolitems if t[0] in 
                  ('Home', 'Back', 'Forward', 'Pan', 'Zoom')]
 
@@ -77,13 +80,14 @@ class NavigationToolbar(NavigationToolbar2QT):
                 
     def resetHistory(self):
         """
-        Clear the history so it can be used for different image size together
+        Clear the history so it can be used for different image size together. 
+        SEM or STEM images from different tool can possibly have different size.
         """
         self._views.clear()
         self._positions.clear()
     
 class ImageViewer(QtWidgets.QMainWindow):
-    """Viewer for displaying images.
+    """Backend ImageViewer 
 
     This viewer is a simple container object that holds a Matplotlib axes
     for showing images. `ImageViewer` doesn't subclass the Matplotlib axes (or
@@ -100,27 +104,18 @@ class ImageViewer(QtWidgets.QMainWindow):
         Matplotlib canvas, figure, and axes used to display image.
     image : array
         Image being viewed. Setting this value will update the displayed frame.
-    plugins : list
-        List of attached plugins.
     
     
     Signals:
     ----------
-    new_image : signal emit the new image when a new image is loaded or when 
-                the image is a new image for this main plugin
+    new_image : PyQtSignal
+        Signal that emits the new image when a new image is loaded or when 
+        the image is a new image for the current main plugin.
                 
     Slot:
     ----------
     _close_main_plugin : connected to the closing signal sent by the main plugin
                 override by the derived class to specify the action
-                
-    
-    Examples
-    --------
-    >>> from skimage import data
-    >>> image = data.coins()
-    >>> viewer = ImageViewer(image) # doctest: +SKIP
-    >>> viewer.show()               # doctest: +SKIP
 
     """
 
@@ -131,13 +126,17 @@ class ImageViewer(QtWidgets.QMainWindow):
 
     
 #    original_image_changed = Signal(np.ndarray)
-
     # Signal that the original image has been changed
     new_image = pyqtSignal(np.ndarray)
     
 # TODO: Add splash screen
 
     def __init__(self, useblit=True, label_lvl=690):
+        '''
+        label_lvl : int
+            Number of row, from which the image is excluded to exclude the SEM 
+            label. It can be adjusted in the UI
+        '''
         # Start main loop
         init_qtapp()
         super().__init__()
@@ -151,20 +150,24 @@ class ImageViewer(QtWidgets.QMainWindow):
         self.file_menu.addAction('Quit', self.close,
                                  Qt.CTRL + Qt.Key_Q)
         self.menuBar().addMenu(self.file_menu)
-
+        
+        self.help_menu = QtWidgets.QMenu('&Help', self)
+        self.help_menu.addAction('About SSA', self._about_window, Qt.CTRL + Qt.Key_A)
+        self.menuBar().addMenu(self.help_menu)
+        
         self.main_widget = QtWidgets.QWidget()
         self.setCentralWidget(self.main_widget)
-        # DYL: If the data is saved
+        # Boolean to tell if the data is saved
         self._data_saved = None
-        # DYL: Four attribute to manage multiple images.
+        # Four attributes to manage multiple images that are loaded together
         self._has_img = False
         self._path_list = None
         self._img_names = None
         self._img_idx = None
         
-        # DYL: List of tools to include all artists
+        # List of tools to include all artists
         self._tools = []
-               
+
         image = np.ones([768, 1024])            
         self.fig, self.ax = figimage(image)     
         self.useblit = useblit
@@ -176,19 +179,18 @@ class ImageViewer(QtWidgets.QMainWindow):
         self._image_plot = self.ax.images[0]
         self._update_original_image(image)
         
-        # DYL: List of plugins
+        # List of plugins
         self.main_plugin = None
         self.assist_plugins = []
 
-        # DYL: This is the key to manage events. All action need to be on the 
-        # Canvas I think
+        # The key to manage events. All action need to be on the canvas
         self._event_manager = EventManager(self.ax)
-        # DYL: Add navigation bar from matplotlib, without using coordinates
+        # Add navigation bar from matplotlib, without using coordinates
         self.toolbar = NavigationToolbar(self.canvas, self, coordinates=False)
-        # DYL: The right side panel to include more information and choices
+        # The right side panel to include more information and choices
         self.right_panel = QtWidgets.QGridLayout()
-        # DYL: create options
-        self.pdf_record = QCheckBox('Save to PDF', self)
+        # More options in the viewer. 
+        self.pdf_record = QCheckBox('Save to PDF', self) # Not yet implemented
         self.pdf_record.toggle()
         
         self._label = QCheckBox('Label Level:', self)
@@ -209,7 +211,7 @@ class ImageViewer(QtWidgets.QMainWindow):
         self.next_btn.resize(self.next_btn.sizeHint())
         self.next_btn.setEnabled(False)
         
-        # DYL: create drop box to choose different plugin
+        # Create drop box to choose different plugins
         plug_name = QLabel('Choose Plugin:')
         self._choose_plugin = QComboBox()
         self._choose_plugin.addItem('None')
@@ -235,13 +237,13 @@ class ImageViewer(QtWidgets.QMainWindow):
                 print(e)
         self._choose_plugin.activated[str].connect(self._choose_main_plugin)  
         
-        # DYL: The first line of widget, including the tool bar
+        # The first row of widget, including the tool bar
         first_line = QtWidgets.QHBoxLayout()
         first_line.addWidget(self.toolbar)
         first_line.addStretch(1)
         first_line.addLayout(self.right_panel)
         
-        # DYL: The second line of widget
+        # The second row of widget
         sec_line = QtWidgets.QHBoxLayout()
         sec_line.addWidget(self.pdf_record)
         sec_line.addWidget(self._label)
@@ -252,7 +254,7 @@ class ImageViewer(QtWidgets.QMainWindow):
         sec_line.addWidget(plug_name)
         sec_line.addWidget(self._choose_plugin)
         
-        # DYL: layout of the main window
+        # layout of the main window
         self.layout = QtWidgets.QVBoxLayout(self.main_widget)
         self.layout.addLayout(first_line)        
         self.layout.addLayout(sec_line)
@@ -274,8 +276,6 @@ class ImageViewer(QtWidgets.QMainWindow):
             self.new_image.disconnect(self.main_plugin._on_new_image)
             self.main_plugin.close()
             self.main_plugin = None
-#            print('After clean')
-#            print(self.findChildren(QDialog))
         if plugin_name != 'None':
             width = self.width()
             height = self.height()
@@ -284,13 +284,14 @@ class ImageViewer(QtWidgets.QMainWindow):
             self.resize(width, height)
             self.main_plugin = new_plug
             self._main_plugin_info(new_plug)
-            # DYL: Connect signal and slots between main plugin and image viewer
+            
+            # Connect signal and slots between main plugin and image viewer
             self.new_image.connect(self.main_plugin._on_new_image)
+            
             self.main_plugin.plugin_closed.connect(self._close_main_plugin)
             self.main_plugin.plugin_updated.connect(self._plugin_updated)
             self._refresh()
-#            print('added new one:')
-#            print(self.findChildren(QDialog))
+
             
     def __add__(self, plugin):
         """Add plugin to ImageViewer"""
@@ -302,7 +303,7 @@ class ImageViewer(QtWidgets.QMainWindow):
             dock_widget.setAttribute(Qt.WA_DeleteOnClose)
             dock_widget.setWidget(plugin)
             dock_widget.setWindowTitle(plugin.name)
-            # DYL: when plugin is closed, send signal to its corresponding dock
+            # When plugin is closed, send signal to its corresponding dock
             # to close the dock area
             plugin.plugin_closed.connect(dock_widget.close)
             self.addDockWidget(dock_location, dock_widget)
@@ -340,7 +341,7 @@ class ImageViewer(QtWidgets.QMainWindow):
                 self._img_names.append(os.path.basename(path))    
             self.toolbar.resetHistory()
             self._refresh()
-            self._show_current_img()   
+            self._show_current_img()
     
     def _next_img(self):
         if self._img_idx is not None and self._img_idx < len(self._img_names)-1:
@@ -353,7 +354,7 @@ class ImageViewer(QtWidgets.QMainWindow):
         Refresh the image viewer if a new image is loaded into the image 
         viewer or if a new plugin is added.
         """
-        # DYL: If an image exist when refreshed, emit new_image signal
+        # If an image exist when refreshed, emit new_image signal
         if self._has_img:
             img = self._show_current_img()
             self.new_image.emit(img)
@@ -379,10 +380,11 @@ class ImageViewer(QtWidgets.QMainWindow):
         """For subclass to implement more on how to save data"""
         self._data_saved = True
         self.save_btn.setEnabled(False)
+        
     
     def _show_current_img(self):
         image = read_tiff.imread(self._path_list[self._img_idx])
-        # DYL: some weird incompatibility between Python3.5 and 3.6
+        # Some weird incompatibility between Python3.5 and 3.6 (DYL)
         if len(image.shape) == 3:
             x, y, z = image.shape
             if x == 3:
@@ -406,11 +408,6 @@ class ImageViewer(QtWidgets.QMainWindow):
  
 #    def save_to_file(self, filename=None):
 #        """Save current image to file.
-#
-#        The current behavior is not ideal: It saves the image displayed on
-#        screen, so all images will be converted to RGB, and the image size is
-#        not preserved (resizing the viewer window will alter the size of the
-#        saved image).
 #        """
 #        if filename is None:
 #            filename = dialogs.save_file_dialog()
@@ -529,6 +526,28 @@ class ImageViewer(QtWidgets.QMainWindow):
             as more signals
         """
         pass
+    
+    def _about_window(self):
+        about = QMessageBox()
+        about.setIcon(QMessageBox.Information)
+        about.setTextFormat(QtCore.Qt.RichText)
+        info = ['<br> SSA version Beta 0.1 <br>',
+                'The Supervised SEM Auto-analysis software',
+                'Copyright &copy; SSA project contributors',
+                'Licensed under the terms of MIT License',
+                '',
+                'Created by Dongyao Li',
+                'Developed and maintained by the SSA project contributors',
+                '',
+                'The software is under continuous development. For more' 
+                ' information please contact: ' +
+                "<a href='mailto:{0}'>{0}</a><br><br>".format('dongyao.li@lamresearch.com') ]
+        about.setText('<br>'.join(info))
+#        about.setInformativeText('\n'.join(info))
+        about.setWindowTitle('About Supervised SEM Auto-analysis')
+        about.setStandardButtons(QMessageBox.Ok)
+        about.exec_()
+        
     
     @pyqtSlot()
     def _close_main_plugin(self):

@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 """
 Base class for Plugins that interact with ImageViewer.
 """
@@ -12,19 +14,10 @@ __all__ = ['Plugin']
 class Plugin(QtWidgets.QDialog):
     """Base class for plugins that interact with an ImageViewer.
 
-    A plugin connects an image filter (or another function) to an image viewer.
-    Note that a Plugin is initialized *without* an image viewer and attached in
-    a later step. See example below for details.
-
     Parameters
     ----------
     image_viewer : ImageViewer
         Window containing image used in measurement/manipulation.
-    image_filter : function
-        Function that gets called to update image in image viewer. This value
-        can be `None` if, for example, you have a plugin that extracts
-        information from an image and doesn't manipulate it. Alternatively,
-        this function can be defined as a method in a Plugin subclass.
     height, width : int
         Size of plugin window in pixels. Note that Qt will automatically resize
         a window to fit components. So if you're adding rows of components, you
@@ -44,32 +37,6 @@ class Plugin(QtWidgets.QDialog):
         List of Matplotlib artists and canvastools. Any artists created by the
         plugin should be added to this list so that it gets cleaned up on
         close.
-
-    Examples
-    --------
-    >>> from skimage.viewer import ImageViewer
-    >>> from skimage.viewer.widgets import Slider
-    >>> from skimage import data
-    >>>
-    >>> plugin = Plugin(image_filter=lambda img,
-    ...                 threshold: img > threshold) # doctest: +SKIP
-    >>> plugin += Slider('threshold', 0, 255)       # doctest: +SKIP
-    >>>
-    >>> image = data.coins()
-    >>> viewer = ImageViewer(image)       # doctest: +SKIP
-    >>> viewer += plugin                  # doctest: +SKIP
-    >>> thresholded = viewer.show()[0][0] # doctest: +SKIP
-
-    The plugin will automatically delegate parameters to `image_filter` based
-    on its parameter type, i.e., `ptype` (widgets for required arguments must
-    be added in the order they appear in the function). The image attached
-    to the viewer is **automatically passed as the first argument** to the
-    filter function.
-
-    #TODO: Add flag so image is not passed to filter function by default.
-
-    `ptype = 'kwarg'` is the default for most widgets so it's unnecessary here.
-
     """
     name = 'Plugin'
     image_viewer = RequiredAttr("%s is not attached to ImageViewer" % name)
@@ -114,7 +81,7 @@ class Plugin(QtWidgets.QDialog):
         """
         self.setParent(image_viewer)
         self.setWindowFlags(Qt.Dialog)
-        # DYL: Need to specify the image viewer because plugins need to draw lines
+        # Need to specify the image viewer because plugins need to draw lines
         # on the canvas
         self.image_viewer = image_viewer
 
@@ -157,7 +124,7 @@ class Plugin(QtWidgets.QDialog):
         self.plugin_updated.emit()
         
     def keyPressEvent(self, event):
-        #DYL: override esc key in QDialog. This is for Qt
+        # Override esc key in QDialog. This is for Qt
         if event.key() == Qt.Key_Escape:
             pass
 

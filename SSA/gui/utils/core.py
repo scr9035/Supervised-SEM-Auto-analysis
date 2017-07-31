@@ -48,8 +48,7 @@ def start_qtapp(app=None):
     if not is_event_loop_running(app):
         app._in_event_loop = True
         
-        # Changed by DYL
-        app.aboutToQuit.connect(app.deleteLater) # Fix the problem between spyder and PyQt5
+        app.aboutToQuit.connect(app.deleteLater) # Fix the problem between spyder and PyQt5(DYL)
         
         app.exec_()
         app._in_event_loop = False

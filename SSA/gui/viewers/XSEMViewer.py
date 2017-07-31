@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-#
-# Copyright © 2017 Dongyao Li
 
 from .core import ImageViewer
 from ..plugins import Plugin
@@ -11,11 +9,13 @@ import pandas as pd
 import numpy as np
 import copy
 import json
+import matplotlib.pyplot as plt
 
 class XSEMViewer(ImageViewer):
-    """
-    Subclass of ImageViewer. Focus on the data summary of the measurement and 
-    detail information about image and plugin.
+    """Subclass of ImageViewer. Front end image viewer.
+    
+    To implement data transfer, summary, and further data processing.
+    Also involve detail information about image and plugin.
     """
     def __init__(self):
         super().__init__()
@@ -33,6 +33,8 @@ class XSEMViewer(ImageViewer):
         
         self._data_summary = pd.DataFrame()
         self._data_raw = {}
+        self._current_special_data = None # To record data which doesn't have consistent format
+        self._special_data_summary = {}
         self._current_data = None
         
         self.image_tag = QLineEdit()
@@ -71,10 +73,15 @@ class XSEMViewer(ImageViewer):
         """
         super()._main_plugin_info(plugin)    
         if hasattr(plugin, 'information'):
-            self.relevant_information.setText(plugin.information)       
+            self.relevant_information.setText(plugin.information)
+        
         # Connect data transfer signal
         if hasattr(plugin, 'data_transfer_sig'):
             plugin.data_transfer_sig.connect(self.data_receive)
+            
+        # Connect special data transfer signal
+        if hasattr(plugin, 'special_data_transfer_sig'):
+            plugin.special_data_transfer_sig.connect(self.special_data_receive)
     
     @pyqtSlot()
     def _close_main_plugin(self):
@@ -126,7 +133,7 @@ class XSEMViewer(ImageViewer):
     def data_receive(self, vert_header, hori_header, data):
         """Slot for data transfer signal from plugin
         """
-        # DYL: Fill in the table first
+        # Fill in the table first
         self._table_current.clear()
         measure_count = len(vert_header)
         point_count = len(hori_header)
@@ -136,10 +143,10 @@ class XSEMViewer(ImageViewer):
         hori_labels = ['Avg', 'Std'] + hori_header
         self._table_current.setHorizontalHeaderLabels(hori_labels)
         self._table_current.setVerticalHeaderLabels(vert_header)        
-        # DYL: if now data needs to be displayed
+        # if no data needs to be displayed
         if point_count == 0:
             return 
-        # DYL: Fill in all the data
+        # Fill in all the data
         for i in range(measure_count):
             measure = vert_header[i]
             for j in range(point_count):
@@ -149,44 +156,59 @@ class XSEMViewer(ImageViewer):
             self._table_current.setItem(i, 0, QTableWidgetItem('%.1f' %mean))
             self._table_current.setItem(i, 1, QTableWidgetItem('%.1f' %std))           
         self._table_current.resizeColumnsToContents()
-        # DYL: copy the data into dataframe
+        # copy the data into dataframe
         self._current_data = copy.deepcopy(data) # Need to make a new copy 
+    
+    @pyqtSlot(dict)
+    def special_data_receive(self, data):
+        """Slot to transfer special data from plugin
+        """
+        self._current_special_data = data
         
                                         
     def save_data(self):
-        if self._current_data is None:
+        if self._current_data is None and self._current_special_data is None:
             return
         super().save_data()
-        # DYL: Update raw data
-        if self.chip_name in self._data_raw:
-            for measurement in self._current_data:
-                if measurement not in self._data_raw[self.chip_name]:
-                    self._data_raw[self.chip_name][measurement] = np.array([])
-                self._data_raw[self.chip_name][measurement] = \
-                              np.concatenate((self._data_raw[self.chip_name][measurement], 
-                                                 self._current_data[measurement]))
-        else:
-            self._data_raw[self.chip_name] = copy.deepcopy(self._current_data)   # Create new copy                    
-        # DYL: Update summary
-        for measurement in self._current_data:
-            raw_data = self._data_raw[self.chip_name][measurement]
-            avg = np.nanmean(raw_data)
-            std = np.nanstd(raw_data)
-            if self.chip_name in self._data_summary.index and measurement in self._data_summary.columns.levels[0]:
-                self._data_summary.loc[self.chip_name][(measurement, 'avg')] = avg
-                self._data_summary.loc[self.chip_name][(measurement, 'std')] = std
+        # Update raw data
+        if self._current_data is not None:
+            if self.chip_name in self._data_raw:
+                for measurement in self._current_data:
+                    if measurement not in self._data_raw[self.chip_name]:
+                        self._data_raw[self.chip_name][measurement] = np.array([])
+                    self._data_raw[self.chip_name][measurement] = \
+                                  np.concatenate((self._data_raw[self.chip_name][measurement], 
+                                                     self._current_data[measurement]))
             else:
-                chip_data = {self.chip_name:{(measurement, 'avg'): avg, (measurement, 'std'): std}}
-                df = pd.DataFrame.from_dict(chip_data, orient='index')
-                if self.chip_name not in self._data_summary.index:
-                    self._data_summary = pd.concat([self._data_summary, df], axis=0)
+                self._data_raw[self.chip_name] = copy.deepcopy(self._current_data)   # Create new copy                    
+            # Update summary
+            for measurement in self._current_data:
+                raw_data = self._data_raw[self.chip_name][measurement]
+                avg = np.nanmean(raw_data)
+                std = np.nanstd(raw_data)
+                if self.chip_name in self._data_summary.index and measurement in self._data_summary.columns.levels[0]:
+                    self._data_summary.loc[self.chip_name][(measurement, 'avg')] = avg
+                    self._data_summary.loc[self.chip_name][(measurement, 'std')] = std
                 else:
-                    self._data_summary = pd.concat([self._data_summary, df], axis=1)
-        self.update_summary()
+                    chip_data = {self.chip_name:{(measurement, 'avg'): avg, (measurement, 'std'): std}}
+                    df = pd.DataFrame.from_dict(chip_data, orient='index')
+                    if self.chip_name not in self._data_summary.index:
+                        self._data_summary = pd.concat([self._data_summary, df], axis=0)
+                    else:
+                        self._data_summary = pd.concat([self._data_summary, df], axis=1)
+            self.update_summary()
+        if self._current_special_data is not None:
+            if self.chip_name in self._special_data_summary:
+                for key in self._current_special_data.keys():
+                    self._special_data_summary[self.chip_name][key] = \
+                    np.concatenate((self._special_data_summary[self.chip_name][key], self._current_special_data[key]))
+            else:
+                self._special_data_summary[self.chip_name] = copy.deepcopy(self._current_special_data)
         self._saveExcel()
+        
    
     def update_summary(self):
-        # TODO: change the horizontal header to multilevel index
+        # TODO: change the horizontal header to multilevel index if possible
         levels = self._data_summary.columns.levels
         labels = self._data_summary.columns.labels
         hori_header = [levels[0][i] + '(' + levels[1][j] + ')' for i, j in zip(labels[0], labels[1])]
@@ -224,6 +246,27 @@ class XSEMViewer(ImageViewer):
                   self._data_raw.items() for innerKey, series in innerDict.items()}
         raw_df = pd.DataFrame.from_dict(reform_raw_data)
         raw_df.to_excel('raw_data.xlsx')
+        
+        """ The following is under development for special data transfer
+        """
+        if len(self._special_data_summary.keys()) > 0:
+            special_data = {(chip_name, column) : cd_list for chip_name, innerDict 
+                            in self._special_data_summary.items() for 
+                            column, cd_list in innerDict.items()}
+            for i in self._special_data_summary.keys():
+                f = plt.figure(figsize=(8, 12))
+                plt.plot(self._special_data_summary[i]['Left'], self._special_data_summary[i]['Depth'], 'r.')
+                plt.plot(self._special_data_summary[i]['Right'], self._special_data_summary[i]['Depth'], 'b.')
+                plt.xlabel('X (nm)')
+                plt.ylabel('Depth (nm)')
+                plt.show()
+                ff = plt.figure(figsize=(8,12))
+                plt.plot(self._special_data_summary[i]['Bulk_CD'], self._special_data_summary[i]['Depth'], 'b.')
+                plt.xlabel('CD (nm)')
+                plt.ylabel('Depth (nm)')
+                plt.show()
+            pd.DataFrame(special_data).to_excel('SpecialData.xlsx')
+        
     
     def _saveSettings(self, file_name):
         setting_dic = {'chip_name':self._chip_name_pos, 'label_level':self._label_lvl}

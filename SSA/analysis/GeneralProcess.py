@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright © 2017 Dongyao Li
+"""
+This script mostly contains general algorithms I developed for image analysis.
+Not all of them are useful and proper. And they are under constant development.
+"""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -21,7 +24,7 @@ def PixDistribution(image, bin_num=1000):
 
 def GaussianMixThres(image, components=2, n_init=3, scale=0.5):
     gmix = skMixture.GaussianMixture(n_components=components, n_init=n_init, 
-                                     init_params='kmeans')
+                                     init_params='kmeans')    
     gmix.fit(image.flatten()[:, np.newaxis])
     mean1, mean2 = np.sort(gmix.means_[:,0])
     thres = mean1 + (mean2 - mean1) * scale
@@ -42,6 +45,7 @@ def KernelThresh(image, intens=[0, 40000], num=4000, bandwidth=2000,
     else:
         kde.fit(image[:, np.newaxis])
     x_pos = np.linspace(intens[0], intens[1], num=num)[:, np.newaxis]
+    kde.get_params()
     log_dens = kde.score_samples(x_pos)
     dens = np.exp(log_dens)
     maxima = LocalMaxima(dens, width=100, highPeak=False)

@@ -1,1 +1,1 @@
-from .channel import ChannelCD
+from .channel import ChannelCD, BulkCD

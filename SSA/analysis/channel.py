@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-#
-# Copyright © 2017 Dongyao Li
-
+"""
+This scrip contains all the front end algorithm I developed for channel-like images.
+Most of them are for specific plugins. They are under constant development
+"""
 import numpy as np
 import scipy.signal as spysig
 from . import GeneralProcess
 import matplotlib.pyplot as plt
-
 
 def IntensInterface(image, ref_range=[0,np.Inf], axis=1, smooth=2000, iteration=10, 
                     width=np.arange(5,10)):
@@ -39,7 +39,7 @@ def IntensInterface(image, ref_range=[0,np.Inf], axis=1, smooth=2000, iteration=
     grad = GeneralProcess.AnisotropicFilter1D(grad, iteration, smooth, delta_t=0.3)
     peak_pos = spysig.find_peaks_cwt(grad, width)
     candidates = list(zip(grad[peak_pos], peak_pos))
-    # DYL: sort peaks based on the intensity of the gradient
+    # Sort peaks based on the intensity of the gradient
     candidates.sort()
     candidates.reverse()
     return int(round(np.array(candidates)[0,1])) + low_lim
@@ -181,10 +181,10 @@ def ChannelCD(image, measured_lvl, algo='fit', find_ref=True, ref_range=[0,np.In
     channel_cd = [[] for _ in range(channel_count)]
     channel_points = [[] for _ in range(channel_count)]
     if mode == 'up':
-        # DYL: mode up means the reference line is higher
+        # Mode up means the reference line is higher
         measured_lvl = measured_lvl + int(round(reference))
     elif mode == 'down':
-        # DYL: mode down means the reference line is lower
+        # Mode down means the reference line is lower
         measured_lvl = int(round(reference)) - measured_lvl
                           
     if scan % 2 == 0:
@@ -227,6 +227,82 @@ def ChannelCD(image, measured_lvl, algo='fit', find_ref=True, ref_range=[0,np.In
     
     return channel_count, reference, channel_cd, channel_points, channel_center, plateau
 
+
+def BulkCD(image, sample, start_from, algo='fit', find_ref=True, ref_range=[0,np.Inf], 
+              scan=1, threshold=100, mode='up'):
+    '''
+    To measure CD of three bulk region of Y-cut 
+    '''
+    if find_ref is None:
+        reference = 0
+        mode = 'up'
+    elif find_ref is True:
+        reference = IntensInterface(image, ref_range=ref_range)
+    else:
+        try:
+            reference = int(round((find_ref[0][1] + find_ref[1][1])/2))
+        except ValueError:
+            print('The format of reference line is incorrect')
+    
+    y_lim, x_lim = image.shape
+    channel_count, channel_center, plateau = VertiChannel(image, reference, 
+                                                          mode=mode, scale=0, 
+                                                          target='bright')
+    
+    channel_width = np.diff(plateau)
+    channel_width = list(zip(channel_width, range(len(channel_width))))
+    channel_width.sort(reverse=True)
+    bulk_idx = np.array(channel_width)[:3, 1].astype(int)
+    
+    if mode == 'up':
+        lvl = np.arange(reference + start_from, y_lim, sample)
+    elif mode == 'down':
+        lvl = np.arange(10, reference - start_from, sample)
+        
+    channel_cd = [[] for _ in range(len(bulk_idx))]
+    channel_points = [[] for _ in range(len(bulk_idx))]
+    
+    if scan % 2 == 0:
+        before = scan // 2
+        after = scan //2
+    else:
+        before = scan // 2
+        after = scan // 2 + 1
+    
+    for lvl in lvl:
+        line_seg = np.sum(image[lvl-before:lvl+after,:], axis=0) / scan
+        for i in range(len(bulk_idx)):
+            idx = bulk_idx[i]
+            center = int(round(channel_center[idx]))
+            left = int(round(plateau[idx]))
+            right = int(round(plateau[idx + 1]))
+            x_L = np.arange(left, center)
+            y_L = line_seg[left:center]
+            x_R = np.arange(center, right)
+            y_R = line_seg[center:right]
+            
+            if algo == 'fit':
+                left_edge = GeneralProcess.LGSemEdge(x_L, y_L, threshold=threshold, 
+                                                 orientation='forward')                   
+                right_edge = GeneralProcess.LGSemEdge(x_R, y_R, threshold=threshold,
+                                                  orientation='backward')
+                if left_edge is None or right_edge is None:
+                    left_edge, right_edge = ChannelEdgeIntens(line_seg[left:right], 
+                                                              center-left, vert_height=threshold/100.0)
+                    left_edge += left
+                    right_edge += left
+            elif algo == 'easy':
+                left_edge, right_edge = ChannelEdgeIntens(line_seg[left:right], 
+                                                              center-left, vert_height=threshold/100.0)
+                left_edge += left
+                right_edge += left
+            channel_cd[i].append(right_edge-left_edge)
+            channel_points[i].append([[left_edge, lvl], [right_edge, lvl]])
+    
+    return 3, reference, channel_cd, lvl, channel_points, channel_center, plateau
+    
+    
+
 def ChannelDepth(image, ref, scan=1, threshold=100, noise=5000, iteration=0, 
                  mode='up', mag='high'):
     """
@@ -245,7 +321,7 @@ def ChannelDepth(image, ref, scan=1, threshold=100, noise=5000, iteration=0,
         line_seg = np.sum(image[ref:,channel_loc:channel_loc+scan], axis=1) / scan        
         line_seg = GeneralProcess.AnisotropicFilter1D(line_seg, iteration, noise, delta_t=0.3)
         max_depth = len(line_seg)
-        # DYL: try to find the bottom starting from the middle
+        # Try to find the bottom starting from the middle
         x = np.arange(int(max_depth/2), max_depth)
         y = line_seg[int(max_depth/2):]
         if mag == 'high':
@@ -275,7 +351,7 @@ def RecessDepth(image, ref, scan=1, threshold=100, mode='up'):
     for i in range(channel_count):
         channel_loc = int(channel_center[i])
         line_seg = np.sum(image[ref:,channel_loc:channel_loc+scan], axis=1) / scan        
-        # DYL: try to find the bottom starting from the middle
+        # Try to find the bottom starting from the middle
         x = np.arange(len(line_seg))
         y = line_seg
         bot = None # Bypass the LGSemEdge algorithm. Use the simple one
@@ -482,10 +558,10 @@ def StemEdge(image, measured_lvl, find_ref=True, threshold=99, ref_range=[0,np.I
     channel_points = [[] for _ in range(channel_count)]
     
     if mode == 'up':
-        # DYL: mode up means the reference line is higher
+        # mode up means the reference line is higher
         measured_lvl = measured_lvl + int(round(reference))
     elif mode == 'down':
-        # DYL: mode down means the reference line is lower
+        # mode down means the reference line is lower
         measured_lvl = int(round(reference)) - measured_lvl
                           
     for lvl in measured_lvl:

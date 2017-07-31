@@ -49,7 +49,7 @@ class EventManager(object):
         self.connect_event('scroll_event', self.on_scroll)
         
         self.connect_event('key_press_event', self.on_key_press)
-        # DYL: next line is to implement key release
+        # To implement key release
         self.connect_event('key_release_event', self.on_key_release)
         
         self.tools = []
@@ -73,12 +73,11 @@ class EventManager(object):
         for tool in self.tools:
             if not tool.ignore(event) and tool.hit_test(event):
                 self.active_tool = tool
-                # DYL: removed break. So each event goes through every tool
+                # Removed break. So each event goes through every tool
 #                break
         if self.active_tool and not self.active_tool.ignore(event):
             self.active_tool.on_mouse_press(event)
             return
-        # Not sure what this does
         for tool in reversed(self.tools):
             if not tool.ignore(event):
                 self.active_tool = tool
@@ -89,8 +88,7 @@ class EventManager(object):
         tool = self._get_tool(event)
         if tool is not None:
             tool.on_key_press(event)
-    
-    # DYL:        
+         
     def on_key_release(self, event):
         tool = self._get_tool(event)
         if tool is not None:

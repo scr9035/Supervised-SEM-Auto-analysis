@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-#
-# Copyright © 2017 Dongyao Li
 
 # TODO: implement the capping count plugin
 
@@ -13,7 +11,10 @@ from PyQt5.QtCore import QCoreApplication, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon
 
 class HoleProperty(Plugin):
+    """Base plugin for top-down hole like measurements. 
     
+    Early stage development
+    """
     def __init__(self, maxdist=10, height=150, width=700, limits='image', 
                  dock='right', **kwargs):
         super().__init__(height=height, width=width, dock=dock, **kwargs)
@@ -25,9 +26,9 @@ class HoleProperty(Plugin):
         self._event_manager = None
         self._limit_type = limits
         self._new_img = False
-        self._auto_holes = None # This callable needs to be specified by subclass
+        self._auto_holes = None 
         self.set_plugin_param()
-        self._show_statistics = True # Whether to show the profile plot
+        self._show_statistics = True # To implement further based on needs
         
     def set_plugin_param(self, count=0, centers=[], majors=[], minors=[], angles=[]):
         self._count = count
@@ -44,7 +45,7 @@ class HoleProperty(Plugin):
         and options can be added to the control or plot section.
         """
         super().attach(image_viewer)
-        # DYL: Two main sections used in this plugin
+        # Two main sections used in this plugin
         self.control_section = QWidget()        
         self.control_section.setLayout(QtWidgets.QVBoxLayout())
         self.plot_section = QWidget()
@@ -52,7 +53,7 @@ class HoleProperty(Plugin):
         
         control_layout = self.control_section.layout()
         
-        # DYL: Add update button in control section, to update all lines if 
+        # Add update button in control section, to update all lines if 
         # reference line is changed
         update_btn = QPushButton('Update', self)
         update_btn.setToolTip('Update CD lines after changing reference line')
@@ -60,7 +61,7 @@ class HoleProperty(Plugin):
         update_btn.resize(update_btn.sizeHint())
         control_layout.addWidget(update_btn)
         
-        # DYL: Add delete button in control section
+        # Add delete button in control section
         del_btn = QPushButton('Delete', self)
         del_btn.setToolTip('Delete selected geometry')
         del_btn.clicked.connect(self._delete_patch)
@@ -83,12 +84,12 @@ class HoleProperty(Plugin):
         self.reset_plugin()
         
     def reset_plugin(self):
-        # DYL: reset the all widgets based on the plugin information   
+        # Reset the all widgets based on the plugin information   
         self.plot_patches()
         self.data_transfer()
         
     def plot_patches(self):
-        # DYL: Delete all plots in the plot section
+        # Delete all plots in the plot section
         while self.plot_section.layout().count():
             item = self.plot_section.layout().takeAt(0)
             widget = item.widget()
@@ -109,13 +110,13 @@ class HoleProperty(Plugin):
         if self._auto_holes is None:
             return      
         elif self._new_img:
-            # DYL: If a new image is introduced          
+            # If a new image is introduced          
             self._new_img = False
             y_lim, x_lim = self._image.shape
             count, center, major, minor, angle  = self._auto_holes(self._image)                           
             self.set_plugin_param(count=count, centers=center, majors=major,
                                   minors=minor, angles=angle)
-            # DYL: Data transfer is included in the reset 
+            # Data transfer is included in the reset 
             self.reset_plugin()
     
     def _delete_patch(self):

@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
-#
-# Copyright © 2017 Dongyao Li
 
 import numpy as np
-
-from ..canvastools import LineTool, LimLineTool
 from skimage import measure
 from skimage.util.dtype import dtype_range
+from ..canvastools import LineTool, LimLineTool
 from ..plugins import Plugin
 #from ..utils.canvas import BlitManager, EventManager
 from ..utils import new_plot
@@ -18,6 +15,13 @@ from PyQt5.QtCore import Qt
 
 
 class NormalDist(Plugin):
+    """Base (backend level) plugin for CD measurements
+    
+    Can hardly be used off the shelf. Need to be inherented by frontend plugins
+    for auto analysis and correct data tranfer.
+    
+    Effective measurements are limited to horizontal or vertical lines only.
+    """
         
     name = 'Channel CD Measurement'
 
@@ -27,9 +31,6 @@ class NormalDist(Plugin):
                  maxdist=10, height=150, width=700, limits='image', dock='right', 
                  **kwargs):
         """
-        Cannot be used off the shelf. Need to be inherented for auto analysis and 
-        correct data tranfer.
-        
         Parameters
         ----------
         dock : string
@@ -59,7 +60,8 @@ class NormalDist(Plugin):
         self._event_manager = None
         self._limit_type = limits
         self._new_img = False
-        self._auto_CD = None # This callable needs to be specified by subclass
+        # This callable needs to be specified by subclass in order to do auto-analysis
+        self._auto_CD = None
         
         self._ref_line = None
         self._ref_moved = False
@@ -79,11 +81,17 @@ class NormalDist(Plugin):
         self._lim_artists = []
         self._ref_artists = []
         self.set_plugin_param()
-        self._show_profile = True # Whether to show the profile plot
+        # Whether to show the profile plot. Set it to false in subclass if too 
+        # many profiles are shown, which can lag the software seriously.
+        self._show_profile = True 
             
     def set_plugin_param(self, channel_count=0, lvl_count=0, channel_CD=[], end_points=[], 
                  ref_ends=None):
-        # DYL: reset related data
+        """Reset all the stored data
+        
+        Reset happens when plugin is initiated, a new image is loaded, an auto-analysis
+        is made, or any high level parameters are changed which can affect all measurements.
+        """
         
         self._ref_ends = ref_ends
         self._channel_count = channel_count    
@@ -97,7 +105,9 @@ class NormalDist(Plugin):
         self.cd_lines = [[None for _ in range(self._lvl_count)] for _ in range(self._channel_count)]
             
     def _on_new_image(self, image, same_img=False):
-        """Override this method to update your plugin for new images."""
+        """Override this method to specify requirements of any front end plugins 
+        when new images are loaded.
+        """
         super()._on_new_image(image)
         if not same_img:
             self.remove_ref_artists()
@@ -105,11 +115,18 @@ class NormalDist(Plugin):
             self._ref_moved = False
         self._new_img = True
         self._full_image = image
-        self._corp_img()
+        self._crop_img()
         self.set_plugin_param()
         self.reset_plugin()
-            
-    def _corp_img(self):
+                   
+    def _crop_img(self):
+        """Crop the raw image using the limiting lines
+        
+        This is to modify the image conveniently to facilitate the auto-analysis
+        Only top, bottom, and right limitting lines are implemented. Pay extra 
+        attention to top and left (in the future) limiting line since they can
+        change the measurements.
+        """
         self.remove_image_artists()
         
         y_lim, x_lim = self._full_image.shape
@@ -124,6 +141,7 @@ class NormalDist(Plugin):
                                             maxdist=self.maxdist, 
                                             on_move=self._lim_line_changed,
                                             handle_props=right_lim_handle_prop)
+                # Default right limitting line position
                 self._right_lim_line.end_points = [[round(x_lim*0.8), 0], 
                                                    [round(x_lim*0.8), y_lim-1]]
                 self._right_lim_lvl = round(x_lim*0.8)
@@ -143,6 +161,8 @@ class NormalDist(Plugin):
                                             maxdist=self.maxdist,
                                             on_move=self._lim_line_changed,
                                             handle_props=bot_lim_handle_prop)
+                # Default bottom limitting line position. This won't be at the very
+                # bottom since the label region is usually excluded first.
                 self._bot_lim_line.end_points = [[0, y_lim-1], 
                                                  [x_lim-1, y_lim-1]]
                 self._bot_lim_lvl = y_lim - 1
@@ -162,7 +182,7 @@ class NormalDist(Plugin):
                                             maxdist=self.maxdist,
                                             on_move=self._lim_line_changed,
                                             handle_props=top_lim_handle_prop)
-                
+                # Default top limiting line postion.
                 self._top_lim_line.end_points = [[0, int(y_lim/4)],
                                                  [x_lim-1, int(y_lim/4)]]
                 self._top_lim_lvl = int(y_lim/4)
@@ -177,12 +197,12 @@ class NormalDist(Plugin):
                 self._image = self._image[self._top_lim_lvl:,:]
 
     def reset_plugin(self):
-        # DYL: reset the all widgets based on the plugin information
+        # Reset the all widgets based on the plugin information
         self.plot_profile()
         self.data_transfer()
     
     def data_transfer(self):
-        """Override by subclass. Pass CD data to the main image viewer data table"""
+        """Override by subclass. Pass data to the main image viewer data table"""
         pass
     
     def attach(self, image_viewer):
@@ -192,7 +212,7 @@ class NormalDist(Plugin):
         and options can be added to the control or plot section.
         """
         super().attach(image_viewer)
-        # DYL: Two main sections used in this plugin
+        # Two main sections used in this plugin
 #        self.control_section = QtWidgets.QVBoxLayout()
         self.control_section = QWidget()
         self.control_section.setLayout(QVBoxLayout())
@@ -219,6 +239,7 @@ class NormalDist(Plugin):
         hline.setFrameShadow(QFrame.Sunken)
         control_layout.addWidget(hline)
         
+        # User can add limit line
         top_lim_check = QCheckBox('Top Limit Line')
         if self._add_top_lim:
             top_lim_check.toggle()
@@ -231,7 +252,6 @@ class NormalDist(Plugin):
         bot_lim_check.stateChanged.connect(self._use_bot_lim)
         control_layout.addWidget(bot_lim_check)
         
-        
         right_lim_check = QCheckBox('Right Limit Line')
         if self._add_right_lim:
             right_lim_check.toggle()
@@ -243,14 +263,14 @@ class NormalDist(Plugin):
         hline.setFrameShadow(QFrame.Sunken)
         control_layout.addWidget(hline)
         
-        # DYL: Add update button in control section, to update all lines if 
+        # Add update button in control section, to update all lines if 
         # reference line is changed
         update_btn = QPushButton('Update', self)
         update_btn.setToolTip('Update CD lines after changing reference line')
         update_btn.clicked.connect(self._update_data)
         update_btn.resize(update_btn.sizeHint())
         control_layout.addWidget(update_btn)
-        # DYL: Add delete button in control section
+        # Add delete button in control section
         del_btn = QPushButton('Delete', self)
         del_btn.setToolTip('Delete selected CD line')
         del_btn.clicked.connect(self._delete_line)
@@ -322,13 +342,13 @@ class NormalDist(Plugin):
     def plot_profile(self):
         """Add all profile plots
         """       
-        # DYL: Delete all plots in the plot section
+        # Delete all plots in the plot section
         while self.plot_section.layout().count():
             item = self.plot_section.layout().takeAt(0)
             widget = item.widget()
             widget.deleteLater()
         
-        # DYL: Arrange all the canvas
+        # Arrange all the canvas
         fig_width = self._width / (self._lvl_count + 1)
         fig_height = self._height / (self._channel_count + 1)
         for i in range(self._channel_count):
@@ -343,10 +363,10 @@ class NormalDist(Plugin):
                 if np.isscalar(bgcolor):
                     bgcolor = str(bgcolor / 255.)
                 self.figures[i][j].patch.set_facecolor(bgcolor)
-                # DYL: Position of the plots
+                # Position of the plots
                 self.plot_section.layout().addWidget(self.canvas[i][j], *[i,j])
                 
-        # DYL: Plot all CD lines and plot their profile
+        # Plot all CD lines and plot their profile
         image = self._image       
         if self._limit_type == 'image':
             self.limits = (np.min(image), np.max(image))
@@ -361,7 +381,7 @@ class NormalDist(Plugin):
                 for j in range(self._lvl_count):
                     self.axs[i][j].set_ylim(self.limits)
         
-        # DYL: Add the reference line if the end points are given
+        # Add the reference line if the end points are given
         if self._ref_ends is not None:
             if self._ref_line is None:
                 ref_handle_prop = dict(marker='.', markersize=7, color='r', mfc='r', 
@@ -374,11 +394,11 @@ class NormalDist(Plugin):
                 self._ref_line.end_points = self._ref_ends
                 self._ref_artists.append(self._ref_line) 
         
-        # DYL: Add all other lines for distance measurements
+        # Add all other lines for distance measurements
         for i in range(self._channel_count):
             for j in range(self._lvl_count):
                 if self._cdline_ends[i][j] is not None:
-                    # DYL: if don't need a cd_line, can put None in the list
+                    # If no cd_line, can put None in the list
                     if self._mode == 'Horizontal':
                         cd_handle_prop = dict(marker='|', markersize=7, color='r', 
                                               mfc='r', ls='none', alpha=1, visible=True)
@@ -392,7 +412,7 @@ class NormalDist(Plugin):
                                                      maxdist=self.maxdist, 
                                                      on_move=self.cd_line_changed,
                                                      handle_props=cd_handle_prop)
-                    # DYL: add 0.5 to move the point to the center of the pixel
+                    # Add 0.5 to move the point to the center of the pixel
                     # at here or in the line class
                     if self._add_top_lim:
                         self._cdline_ends[i][j][0][1] += self._top_lim_lvl
@@ -430,14 +450,19 @@ class NormalDist(Plugin):
                         self._cd_data[i][j] = None
         self.data_transfer()
   
-    def _update_data(self):        
+    def _update_data(self):
+        """callback of the "update" button
+        
+        Let auto-analysis algorithm do everything first. Full auto-analysis is 
+        performed when a new image is loaded, or the reference line is manually
+        moved
+        """
         if self._auto_CD is None:
-            return
+            return                
         if not self._ref_moved and not self._new_img:
             return
-        
         try:
-            self._corp_img()
+            self._crop_img()
         except RuntimeError:
             self.set_plugin_param()
             self.reset_plugin()
@@ -466,7 +491,7 @@ class NormalDist(Plugin):
             channel_CD = []
             cd_points = []
         
-        if ref_line_y is None: # DYL: when plugin doesn't need reference line
+        if ref_line_y is None: # when plugin doesn't need reference line
             ref_ends = None 
         else:
             if self._add_top_lim:
@@ -479,36 +504,7 @@ class NormalDist(Plugin):
         self.set_plugin_param(channel_count=channel_count, lvl_count=lvl_count, 
                               channel_CD=channel_CD, end_points=cd_points, ref_ends=ref_ends)
         self.reset_plugin()
-        
-#        elif self._ref_moved:
-#            # DYL: Calculate the new cd lines and values for the new reference line
-#            self._corp_img()
-#            channel_count, ref_line_y, channel_CD, cd_points = self._auto_CD(self._image, 
-#                                                                interface=self._ref_ends)
-#            
-#            lvl_count = len(channel_CD[0])
-#            # DYL: remove the previous cd lines drawn on the figure
-##            self.remove_image_artists()
-#            self.set_plugin_param(channel_count=channel_count, lvl_count=lvl_count, 
-#                              channel_CD=channel_CD, end_points=cd_points, ref_ends=self._ref_ends)
-#            self.reset_plugin()
-#        elif self._new_img:
-#            # DYL: If a new image is introduced          
-#            self._new_img = False
-#            self._corp_img()
-#            y_lim, x_lim = self._image.shape          
-#            channel_count, ref_line_y, channel_CD, cd_points = self._auto_CD(self._image, 
-#                                                                interface=None)            
-#            lvl_count = len(channel_CD[0])
-#            if ref_line_y is None:
-#                # DYL: this plugin doesn't need reference line
-#                ref_ends = None 
-#            else:
-#                ref_ends = [(10, ref_line_y), (x_lim-10, ref_line_y)]                 
-#            self.set_plugin_param(channel_count=channel_count, lvl_count=lvl_count, 
-#                              channel_CD=channel_CD, end_points=cd_points, ref_ends=ref_ends)
-#            # DYL: Data transfer is included in the reset 
-#            self.reset_plugin()
+    
 
     def _update_act_line(self):
         """
@@ -526,11 +522,11 @@ class NormalDist(Plugin):
                         self.axs[i][j].relim() 
     
     def _reset_lines(self, ax, image, line_tool, margin=5):
-        # DYL: Clear lines out
+        # Clear lines out
         y_lim, x_lim = image.shape
         for line in ax.lines:
             ax.lines = []
-        # DYL: Draw the line
+        # Draw the line
         # If the line is perfectly horizontal, show the line within the markers
         # and also show some extra "margin". The position of markers are shown
         # as the red lines
@@ -556,14 +552,14 @@ class NormalDist(Plugin):
             ax.plot([bot_peak, bot_peak], [min(scan_data), max(scan_data)], 'r-')
             return bot_peak - top_peak
         else:
-            # DYL: Non-horizontal line. Use the extrapolation to give the line
+            # Non-horizontal line. Use the extrapolation to give the line
             # profile
             scan_data = measure.profile_line(image, *line_tool.end_points[:, ::-1])
             ax.plot(scan_data, 'k-')
             return None
 
     def _autoscale_view(self):
-        # DYL: Auto scale all the axis
+        # Auto scale all the axis
         if self.limits is None:
             for i in range(self._channel_count):
                 for j in range(self._lvl_count):

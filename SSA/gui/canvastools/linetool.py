@@ -34,6 +34,8 @@ class LineTool(CanvasToolBase):
     ----------
     end_points : 2D array
         End points of line ((x1, y1), (x2, y2)).
+    level : float
+        Level of the line. Depends on the mode of the line
     """
                  
     def __init__(self, manager, mode='Horizontal', on_move=None, on_mouse_release=None, 
@@ -50,11 +52,11 @@ class LineTool(CanvasToolBase):
         self.maxdist = maxdist
         self._active_pt = None
         
-        # DYL: This is used to mark if this line is choosed by the user now
+        # This is used to mark if this line is choosed by the user now
         self._active_line = False
-        # DYL: This is used to mark if this line is deleted by the user
+        # This is used to mark if this line is deleted by the user
         self._deleted_line = False
-        # DYL: Force the end point only move horizontally
+        # Force the end point only move horizontally or vertically
         self._hori = False
         self._verti = False
         self._mode = mode
@@ -74,7 +76,7 @@ class LineTool(CanvasToolBase):
         self.manager.add_tool(self)
     
     def remove(self):
-        # DYL: detach, not fully delete
+        # Detach, not fully delete
         super().remove()
         self._line.remove()
         self._handles.remove()
@@ -82,7 +84,7 @@ class LineTool(CanvasToolBase):
     @property
     def end_points(self):
         return self._end_pts - 0.5
-
+    
     @end_points.setter
     def end_points(self, pts):
         pts = np.asarray(pts) + 0.5
@@ -93,26 +95,37 @@ class LineTool(CanvasToolBase):
         # So that the line can keep moving while user changes the end points
 #        self.set_visible(True)
         self.redraw()
+    
+    @property
+    def level(self):
+        if self._mode == 'Horizontal':
+            return (self._end_pts[0, 1] + self._end_pts[1, 1])/2
+        elif self._mode == 'Vertical':
+            return (self._end_pts[0, 0] + self._end_pts[1, 0])/2
+    
+    @level.setter
+    def level(self, l):
+        pass    
 
     def hit_test(self, event):
         if event.button != 1 or not self.ax.in_axes(event):
-            # DYL: the line is not choosed
+            # The line is not chosen
             self._active_line = False
             return False
         idx, px_dist = self._handles.closest(event.x, event.y)
         if px_dist < self.maxdist:
-            # DYL: if one of the end point is choosed, this line is choosed
+            # If one of the end point is choosed, this line is chosen
             self._active_pt = idx
             self._active_line = True
             return True
         else:
-            # DYL: the line is not choosed
+            # The line is not chosen
             self._active_line = False
             self._active_pt = None
             return False
         
     def on_key_press(self, event):
-        # DYL: pass to matplotlib. This is different with Qt
+        # Pass to matplotlib. This is different with Qt
 #        if event.key == 'delete':
 #            self.callback_on_key_press(self.delete)
         if event.key == 'shift':
@@ -128,7 +141,7 @@ class LineTool(CanvasToolBase):
     def on_mouse_press(self, event):
         if event.button != 1:
             return
-        # DYL: Change cursor to cross when pressed
+        # Change cursor to cross when pressed
         QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.CrossCursor))
         
 #        self.set_visible(True)
@@ -140,7 +153,7 @@ class LineTool(CanvasToolBase):
     def on_mouse_release(self, event):
         if event.button != 1:
             return
-        # DYL: Change cursor to arrow when released
+        # Change cursor to arrow when released
         QApplication.setOverrideCursor(QtGui.QCursor(QtCore.Qt.ArrowCursor))
         self._active_pt = None
         self.redraw()
@@ -155,7 +168,7 @@ class LineTool(CanvasToolBase):
    
     def update(self, x=None, y=None):
         if x is not None:
-        # DYL: if shift is pressed, then only move horizontally
+        # If shift is pressed, then only move horizontally
             if self._hori and not self._verti:
                 if self._active_pt == 0:
                     self._end_pts[self._active_pt, :] = x, self._end_pts[1, 1]
@@ -170,7 +183,7 @@ class LineTool(CanvasToolBase):
         if x is not None and y is not None:
             if not self._verti and not self._hori:
                 self._end_pts[self._active_pt, :] = x, y
-        #DYL: To compensate the 0.5 added in the display. Here x and y are real
+        # This is to compensate the 0.5 added in the display. Here x and y are real
         # position in the canvas. This function is to handle the movement of lines
         self.end_points = self._end_pts - 0.5
     
@@ -206,6 +219,11 @@ class LineTool(CanvasToolBase):
             self._verti = False
 
 class LimLineTool(CanvasToolBase):
+    """Line class for limitting lines.
+    
+    The limiting line is controlled by one handle instead of two, since it's 
+    always horizontal or vertical.
+    """
     
     def __init__(self, manager, mode='Horizontal', lim=np.inf, on_move=None, on_mouse_release=None, 
                  on_key_press=None, on_key_release=None, maxdist=20, 
@@ -220,11 +238,11 @@ class LimLineTool(CanvasToolBase):
         self.linewidth = props['linewidth']
         self.maxdist = maxdist
         
-        # DYL: This is used to mark if this line is choosed by the user now
+        # This is used to mark if this line is choosed by the user now
         self._active_line = False
-        # DYL: This is used to mark if this line is deleted by the user
+        # This is used to mark if this line is deleted by the user
         self._deleted_line = False
-        # DYL: Force the end point only move horizontally
+        # Force the end point only move horizontally
         self._lim = lim
         self._mode = mode
 
@@ -245,14 +263,14 @@ class LimLineTool(CanvasToolBase):
         self.manager.add_tool(self)
     
     def remove(self):
-        # DYL: detach, not fully delete
+        # Detach, not fully delete
         super().remove()
         self._line.remove()
         self._handles.remove()
     
     def hit_test(self, event):
         if event.button != 1 or not self.ax.in_axes(event):
-            # DYL: the line is not choosed
+            # The line is not chosen
             self._active_line = False
             return False
         idx, px_dist = self._handles.closest(event.x, event.y)
@@ -260,7 +278,7 @@ class LimLineTool(CanvasToolBase):
             self._active_line = True
             return True
         else:
-            # DYL: the line is not choosed
+            # The line is not chosen
             self._active_line = False
             return False
     
@@ -274,7 +292,7 @@ class LimLineTool(CanvasToolBase):
     
     def update(self, x=None, y=None):
         if x is not None:
-        # DYL: if shift is pressed, then only move horizontally
+        # If shift is pressed, then only move horizontally
             if self._mode == 'Vertical':
                 if x < self._lim:
                     self._end_pts[:,0] = [x, x]
@@ -286,7 +304,7 @@ class LimLineTool(CanvasToolBase):
                     self._end_pts[:,1] = [y, y]
                 else:
                     self._end_pts[:,1] = [self._lim-1, self._lim-1]
-        #DYL: To compensate the 0.5 added in the display. Here x and y are real
+        # To compensate the 0.5 added in the display. Here x and y are real
         # position in the canvas. This function is to handle the movement of lines
         self.end_points = self._end_pts - 0.5
     
@@ -359,7 +377,7 @@ class LimLineTool(CanvasToolBase):
     
     
 class ThickLineTool(LineTool):
-    """Widget for line selection in a plot.
+    """Widget for line selection in a plot (Not been used currently)
 
     The thickness of the line can be varied using the mouse scroll wheel, or
     with the '+' and '-' keys.
@@ -430,20 +448,3 @@ class ThickLineTool(LineTool):
             self.linewidth -= 1
             self.update()
             self.callback_on_change(self.geometry)
-
-
-if __name__ == '__main__':  # pragma: no cover
-    from skimage import data
-    from skimage.viewer import ImageViewer
-
-    image = data.camera()
-
-    viewer = ImageViewer(image)
-    h, w = image.shape
-
-    line_tool_1 = ThickLineTool(viewer)
-    line_tool_1.end_points = ([w/3, h/2], [2*w/3, h/2])
-    
-    line_tool_2 = ThickLineTool(viewer)
-    line_tool_2.end_points = ([w/4, h/3], [2*w/4, h/3])
-    viewer.show()

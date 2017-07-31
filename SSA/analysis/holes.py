@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
-#
-# Copyright © 2017 Dongyao Li
+
+"""
+This script is mostly deprecated. It contains the algorim for top down, hole 
+like images. Need a lot more development
+"""
 
 import skimage.morphology as skimorph
 import skimage.measure as skimeasure

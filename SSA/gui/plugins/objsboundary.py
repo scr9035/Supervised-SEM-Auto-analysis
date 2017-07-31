@@ -1,7 +1,4 @@
 # -*- coding: utf-8 -*-
-#
-# Copyright © 2017 Dongyao Li
-
 
 from PyQt5 import QtGui, QtWidgets
 from ..canvastools import BoundaryTool
@@ -18,7 +15,10 @@ from .base import Plugin
 from ..canvastools import LineTool, LimLineTool
 
 class Boundary(Plugin):
+    """Base plugin for profile measurements. 
     
+    Early stage development
+    """
     def __init__(self, maxdist=10, height=150, width=700, limits='image', 
                  dock='right', mode='Horizontal', **kwargs):
         super().__init__(height=height, width=width, dock=dock, **kwargs)
@@ -31,8 +31,8 @@ class Boundary(Plugin):
         self._limit_type = limits
         self._new_img = False
         self._mode = mode
-        self._auto_CD = None # This callable needs to be specified by subclass
-        self._auto_boundary = None # This callable needs to be specified by subclass   
+        self._auto_CD = None 
+        self._auto_boundary = None   
         self.set_plugin_param()
         self._show_boundary = False
         self._show_profile = True
@@ -57,8 +57,8 @@ class Boundary(Plugin):
         self._ref_bound_moved = False
         self._ref_high_ends = ref_high_ends
         self._ref_low_ends = ref_low_ends
-        self._obj_center = obj_center # DYL: Center of the objects boundary
-        self._boundaries = boundaries # DYL: boundary data
+        self._obj_center = obj_center # Center of the objects boundary
+        self._boundaries = boundaries # boundary data
         self._objects = [None for _ in range(self._obj_count)]
 
     def attach(self, image_viewer):
@@ -68,7 +68,7 @@ class Boundary(Plugin):
         and options can be added to the control or plot section.
         """
         super().attach(image_viewer)
-        # DYL: Two main sections used in this plugin
+
         self.control_section = QWidget()        
         self.control_section.setLayout(QtWidgets.QVBoxLayout())
         self.plot_section = QWidget()
@@ -95,15 +95,12 @@ class Boundary(Plugin):
         cb.stateChanged.connect(self._display_boundary)
         control_layout.addWidget(cb)
         
-        # DYL: Add update button in control section, to update all lines if 
-        # reference line is changed
         update_btn = QPushButton('Update', self)
         update_btn.setToolTip('Update boundary after changing reference lines')
         update_btn.clicked.connect(self._update_data)
         update_btn.resize(update_btn.sizeHint())
         control_layout.addWidget(update_btn)
         
-        # DYL: Add delete button in control section
         del_btn = QPushButton('Delete', self)
         del_btn.setToolTip('Delete selected objects')
         del_btn.clicked.connect(self._delete_obj)
@@ -192,8 +189,7 @@ class Boundary(Plugin):
                     raise RuntimeError
                 self._image = self._image[self._top_lim_lvl:,:]
         
-    def reset_plugin(self):
-        # DYL: reset the all widgets based on the plugin information   
+    def reset_plugin(self): 
         self.plot_boundary()
         self.plot_profile()
         self.data_transfer()
@@ -229,7 +225,6 @@ class Boundary(Plugin):
             
     
     def plot_profile(self):
-        # DYL: Delete all plots in the plot section
         while self.plot_section.layout().count():
             item = self.plot_section.layout().takeAt(0)
             widget = item.widget()
@@ -260,7 +255,6 @@ class Boundary(Plugin):
                 if np.isscalar(bgcolor):
                     bgcolor = str(bgcolor / 255.)
                 self.figures[i][j].patch.set_facecolor(bgcolor)
-                # DYL: Position of the plots
                 self.plot_section.layout().addWidget(self.canvas[i][j], *[i,j])
         
         image = self._image       
@@ -280,7 +274,6 @@ class Boundary(Plugin):
         for i in range(self._channel_count):
             for j in range(self._lvl_count):
                 if self._cdline_ends[i][j] is not None:
-                    # DYL: if don't need a cd_line, can put None in the list
                     if self._mode == 'Horizontal':
                         cd_handle_prop = dict(marker='|', markersize=7, color='r', mfc='r', ls='none',
                              alpha=1, visible=True)
@@ -363,7 +356,6 @@ class Boundary(Plugin):
         ref_low_ends = [(1, ref_low_y), (x_lim-1, ref_low_y)]
         
         if ref_cd_y is None:
-            # DYL: this plugin doesn't need reference line
             ref_CDs_ends = None 
         else:
             ref_CDs_ends = [(20, ref_cd_y), (x_lim-20, ref_cd_y)]
@@ -431,21 +423,16 @@ class Boundary(Plugin):
                 if self.cd_lines[i][j] is not None: # if a cd lien exists
                     if self.cd_lines[i][j].is_active() and not self.cd_lines[i][j].is_deleted():
                         cd = self._reset_lines(self.axs[i][j], self._image, self.cd_lines[i][j]) 
-                        # DYL: Here the cd_data must be FLOAT ARRAY!! CANNOT be INT!!!
+                        # Here the cd_data must be FLOAT ARRAY!! CANNOT be INT!!!
                         self._cd_data[i][j] = cd
                         self.data_transfer()
                         self.axs[i][j].relim()
                         
                         
     def _reset_lines(self, ax, image, line_tool, margin=15):
-        # DYL: Clear lines out
         y_lim, x_lim = image.shape
         for line in ax.lines:
             ax.lines = []
-        # DYL: Draw the line
-        # If the line is perfectly horizontal, show the line within the markers
-        # and also show some extra "margin". The position of markers are shown
-        # as the red lines
         p1, p2 = line_tool.end_points        
         if self._mode == 'Horizontal' and  p1[1] == p2[1]:
             left_peak = int(min(p1[0], p2[0]))
@@ -468,14 +455,14 @@ class Boundary(Plugin):
             ax.plot([bot_peak, bot_peak], [min(scan_data), max(scan_data)], 'r-')
             return bot_peak - top_peak
         else:
-            # DYL: Non-horizontal line. Use the extrapolation to give the line
+            # Non-horizontal line. Use the extrapolation to give the line
             # profile
             scan_data = measure.profile_line(image, *line_tool.end_points[:, ::-1])
             ax.plot(scan_data, 'k-')
             return None
     
     def _autoscale_view(self):
-        # DYL: Auto scale all the axis
+        # Auto scale all the axis
         if self.limits is None:
             for i in range(self._channel_count):
                 for j in range(self._lvl_count):

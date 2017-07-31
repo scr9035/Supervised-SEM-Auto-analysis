@@ -74,11 +74,11 @@ class CanvasToolBase(object):
         pass
 
     def remove(self):
-        # DYL: only remove from the manager. Subclass need to remove individual 
-        # artist.
+        """Only remove from the manager. Subclass need to remove individual 
+        artist.
+        """
         self.manager.remove_tool(self)
             
-
 #    @property
 #    def geometry(self):
 #        """Geometry information that gets passed to callback functions."""
@@ -105,8 +105,6 @@ class ToolHandles(object):
     """
     def __init__(self, ax, x, y, marker='o', marker_props=None):
         self.ax = ax
-        
-        # DYL: marker properties
         props = dict(marker=marker, markersize=15, color='r', mfc='w', ls='none',
                      alpha=1, visible=True)
         props.update(marker_props if marker_props is not None else {})

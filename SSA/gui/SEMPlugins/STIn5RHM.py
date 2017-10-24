@@ -103,8 +103,8 @@ class STIn5RHM(NormalDist):
             if thres >= 100:
                 thres = 99
                 self._input_thres.setText(str(thres))
-            if thres <= 0:
-                thres = 1
+            if thres <= -100:
+                thres = -99
                 self._input_thres.setText(str(thres))
             self._threshold = thres           
             self._update_plugin()

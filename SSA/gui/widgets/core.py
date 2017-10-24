@@ -1,4 +1,4 @@
-from ..qt import QtWidgets, QtCore, Qt, QtGui
+from PyQt5 import QtWidgets, QtCore, Qt, QtGui
 from ..utils import RequiredAttr
 
 

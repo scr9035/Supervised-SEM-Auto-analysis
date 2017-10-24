@@ -13,7 +13,7 @@ import sklearn.neighbors as skneighbor
 import scipy.odr as spyodr
 import sklearn.mixture as skMixture
 from scipy.optimize import curve_fit
-import matplotlib.pyplot as plt
+from skimage import exposure
 
 def PixDistribution(image, bin_num=1000):
     values, bins = np.histogram(image, bins=bin_num)
@@ -22,13 +22,22 @@ def PixDistribution(image, bin_num=1000):
     plt.plot(bins[:-1], values, lw=2, c='k')
     return max_count, ax, fig
 
-def GaussianMixThres(image, components=2, n_init=3, scale=0.5):
-    gmix = skMixture.GaussianMixture(n_components=components, n_init=n_init, 
-                                     init_params='kmeans')    
+def GaussianMixThres(image, components=2, means_init=None, n_init=3, scale=0.5):
+    gmix = skMixture.GaussianMixture(n_components=components, n_init=n_init,
+                                     means_init=means_init,
+                                     )
+    hist, bin_centers = exposure.histogram(image)
     gmix.fit(image.flatten()[:, np.newaxis])
     mean1, mean2 = np.sort(gmix.means_[:,0])
+    plt.plot(bin_centers, hist)
+    plt.vlines(mean1, 0, 40)
+    plt.vlines(mean2, 0, 40)
+    plt.show()
     thres = mean1 + (mean2 - mean1) * scale
-    return thres
+    if (mean2 - mean1) / thres < 0.2:
+        return None
+    else:
+        return thres
 
 def KernelThresh(image, intens=[0, 40000], num=4000, bandwidth=2000, 
                  kernel='gaussian'):
@@ -179,6 +188,18 @@ def Logistic(x, x0, y0, k, c):
      y = c / (1 + np.exp(-k*(x - x0))) + y0
      return y
 
+def LogisGradPercent(x0, k, percent, toward='high'):
+    '''Return x coordinates with percentage of gradient in logistic
+    
+    toward : str, optional 'high' or 'low'
+    '''
+    p = 2 / np.sqrt(percent)
+    if toward == 'high':
+        return x0 - 2 * np.log((p - np.sqrt(p**2 - 4))/2) / k
+    elif toward == 'low':
+        return x0 - 2 * np.log((p + np.sqrt(p**2 - 4))/2) / k
+    
+
 def SigmoEdge(x, y, threshold=99, orientation='forward'):
     if orientation == 'forward':
         ori = 1
@@ -190,7 +211,11 @@ def SigmoEdge(x, y, threshold=99, orientation='forward'):
     try:
         popt, pcov = curve_fit(Logistic, x, y, p0=p0)
         x0, y0, k, c = popt
-        edge = x0 - np.log(100.0/threshold-1) / k
+        if threshold >= 0:
+            edge = LogisGradPercent(x0, k, threshold/100.0, toward='high')
+        else:
+            edge = LogisGradPercent(x0, k, -threshold/100.0, toward='low')
+#        edge = x0 - np.log(100.0/threshold-1) / k
     except RuntimeError:
         return x[int(len(x)/2)]      
 #    plt.plot(x, Logistic(x, *popt))
@@ -606,6 +631,39 @@ def WLCBotCD(image, channel_count, measured_lvl):
     """
     This Conclude the process to get edge points based on the total edge image
     """
+
+def TriLineBend(x, x1, y1, x2, y2, x3, y3, x4, y4):
+    if x <= x2:
+        return LineByTwoPoints(x, x1, y1, x2, y2)
+    elif x >= x3:
+        return LineByTwoPoints(x, x3, y3, x4, y4)
+    else:
+        return LineByTwoPoints(x, x2, y2, x3, y3)
+
+vTriLinBend = np.vectorize(TriLineBend)
+
+def TriLineBendFunction(coef, x, x1, x4):
+    """
+    Start and end are fixed.
+    """
+    y1, x2, y2, x3, y3, y4 = coef
+    return vTriLinBend(x, x1, y1, x2, y2, x3, y3, x4, y4)
+
+def TriLineFit(x, y, x1, x4, beta0):
+    # Create a RealData object using input data
+    data = spyodr.RealData(x, y)
+    # Create linear model for fitting.
+    linear_model = spyodr.Model(TriLineBendFunction, extra_args=(x1, x4))
+    # Set up ODR with the model and data.
+    odr = spyodr.ODR(data, linear_model, beta0=beta0)
+    out = odr.run()
+    coef = out.beta
+    return coef, out.res_var
+
+def LineByTwoPoints(x, x1, y1, x2, y2):
+    y = ((x - x1) * y2 - (x - x2) * y1) / (x2 - x1)
+    return y
+
 
 def OneDCornerDetection(x, y):
     """

@@ -5,6 +5,10 @@ import matplotlib.pyplot as plt
 # Turn off the interactive mode of matplotlib so figure window won't show
 
 if __name__ == '__main__':
-    plt.ioff()
-    viewer = XSEMViewer()
-    viewer.show()
+    try:
+        plt.ioff()
+        viewer = XSEMViewer()
+        viewer.show()
+    except SystemExit as e:
+        print('Error!', str(e))
+        input('Press ENTER to exit')

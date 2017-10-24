@@ -2,16 +2,23 @@
 
 import os
 import sys
+import time
 import inspect
 import numpy as np
 from skimage import img_as_float
 from skimage.util.dtype import dtype_range
 from skimage.exposure import rescale_intensity
 import skimage.external.tifffile as read_tiff
+from matplotlib.backends.backend_pdf import PdfPages
 
-from ..qt import QtWidgets, Qt
-from PyQt5.QtWidgets import (QLabel, QPushButton, QCheckBox, QComboBox, QLineEdit, 
-                             QApplication, QDialog, QMessageBox)
+#from PyQt5 import QtWidgets
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap
+#from ..qt import QtWidgets, Qt
+from PyQt5.QtWidgets import (QMainWindow, QLabel, QPushButton, QCheckBox, 
+                             QComboBox, QLineEdit, QApplication, QFrame,
+                             QMessageBox, QMenu, QWidget, QGridLayout, 
+                             QHBoxLayout, QVBoxLayout, QDockWidget, QSplashScreen)
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
 from PyQt5 import (QtGui, QtCore)
 from ..utils import (dialogs, init_qtapp, figimage, start_qtapp,
@@ -86,7 +93,7 @@ class NavigationToolbar(NavigationToolbar2QT):
         self._views.clear()
         self._positions.clear()
     
-class ImageViewer(QtWidgets.QMainWindow):
+class ImageViewer(QMainWindow):
     """Backend ImageViewer 
 
     This viewer is a simple container object that holds a Matplotlib axes
@@ -128,6 +135,7 @@ class ImageViewer(QtWidgets.QMainWindow):
 #    original_image_changed = Signal(np.ndarray)
     # Signal that the original image has been changed
     new_image = pyqtSignal(np.ndarray)
+    self_calib = pyqtSignal(float)
     
 # TODO: Add splash screen
 
@@ -142,7 +150,7 @@ class ImageViewer(QtWidgets.QMainWindow):
         super().__init__()
 
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.file_menu = QtWidgets.QMenu('&File', self)
+        self.file_menu = QMenu('&File', self)
         self.file_menu.addAction('Open tiff images', self.open_imgs,
                                  Qt.CTRL + Qt.Key_O)
 #        self.file_menu.addAction('Save to file', self.save_to_file,
@@ -151,11 +159,11 @@ class ImageViewer(QtWidgets.QMainWindow):
                                  Qt.CTRL + Qt.Key_Q)
         self.menuBar().addMenu(self.file_menu)
         
-        self.help_menu = QtWidgets.QMenu('&Help', self)
+        self.help_menu = QMenu('&Help', self)
         self.help_menu.addAction('About SSA', self._about_window, Qt.CTRL + Qt.Key_A)
         self.menuBar().addMenu(self.help_menu)
         
-        self.main_widget = QtWidgets.QWidget()
+        self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
         # Boolean to tell if the data is saved
         self._data_saved = None
@@ -188,11 +196,17 @@ class ImageViewer(QtWidgets.QMainWindow):
         # Add navigation bar from matplotlib, without using coordinates
         self.toolbar = NavigationToolbar(self.canvas, self, coordinates=False)
         # The right side panel to include more information and choices
-        self.right_panel = QtWidgets.QGridLayout()
+        self.right_panel = QGridLayout()
         # More options in the viewer. 
-        self.pdf_record = QCheckBox('Save to PDF', self) # Not yet implemented
-        self.pdf_record.toggle()
+                
+        self._calib = np.nan
+        calib_label = QLabel('Auto Calibration: ')
+        self._disp_calib = QLabel(str(self._calib * 10**9) + ' nm/pixel')
         
+        vline = QFrame()
+        vline.setFrameShape(QFrame.VLine)
+        vline.setFrameShadow(QFrame.Sunken)
+
         self._label = QCheckBox('Label Level:', self)
         self._label.toggle()
         self._label.stateChanged.connect(self._has_label)
@@ -200,7 +214,11 @@ class ImageViewer(QtWidgets.QMainWindow):
         self._label_lvl = label_lvl
         self._enter_label_lvl = QLineEdit()
         self._enter_label_lvl.setText(str(self._label_lvl))
-        self._enter_label_lvl.editingFinished.connect(self._change_label_lvl)  
+        self._enter_label_lvl.editingFinished.connect(self._change_label_lvl)
+        
+        vline2 = QFrame()
+        vline2.setFrameShape(QFrame.VLine)
+        vline2.setFrameShadow(QFrame.Sunken)
         
         self.save_btn = QPushButton('Save Data', self)
         self.save_btn.clicked.connect(self.save_data)
@@ -210,6 +228,11 @@ class ImageViewer(QtWidgets.QMainWindow):
         self.next_btn.clicked.connect(self._next_img)
         self.next_btn.resize(self.next_btn.sizeHint())
         self.next_btn.setEnabled(False)
+        
+        self.pdf_record = QCheckBox('Save to PDF', self) # Not yet implemented
+        vline3 = QFrame()
+        vline3.setFrameShape(QFrame.VLine)
+        vline3.setFrameShadow(QFrame.Sunken)
         
         # Create drop box to choose different plugins
         plug_name = QLabel('Choose Plugin:')
@@ -238,24 +261,30 @@ class ImageViewer(QtWidgets.QMainWindow):
         self._choose_plugin.activated[str].connect(self._choose_main_plugin)  
         
         # The first row of widget, including the tool bar
-        first_line = QtWidgets.QHBoxLayout()
+        first_line = QHBoxLayout()
         first_line.addWidget(self.toolbar)
         first_line.addStretch(1)
         first_line.addLayout(self.right_panel)
         
         # The second row of widget
-        sec_line = QtWidgets.QHBoxLayout()
-        sec_line.addWidget(self.pdf_record)
+        sec_line = QHBoxLayout()
+        
+        sec_line.addWidget(calib_label)
+        sec_line.addWidget(self._disp_calib)
+        sec_line.addWidget(vline)
         sec_line.addWidget(self._label)
         sec_line.addWidget(self._enter_label_lvl)
+        sec_line.addWidget(vline2)
         sec_line.addWidget(self.save_btn)
         sec_line.addWidget(self.next_btn)
+        sec_line.addWidget(vline3)
+        sec_line.addWidget(self.pdf_record)
         sec_line.addStretch(1)
         sec_line.addWidget(plug_name)
         sec_line.addWidget(self._choose_plugin)
         
         # layout of the main window
-        self.layout = QtWidgets.QVBoxLayout(self.main_widget)
+        self.layout = QVBoxLayout(self.main_widget)
         self.layout.addLayout(first_line)        
         self.layout.addLayout(sec_line)
         self.layout.addWidget(self.canvas)
@@ -274,6 +303,7 @@ class ImageViewer(QtWidgets.QMainWindow):
         """ 
         if self.main_plugin is not None:
             self.new_image.disconnect(self.main_plugin._on_new_image)
+            self.self_calib.disconnect(self.main_plugin._receive_calib)          
             self.main_plugin.close()
             self.main_plugin = None
         if plugin_name != 'None':
@@ -287,19 +317,19 @@ class ImageViewer(QtWidgets.QMainWindow):
             
             # Connect signal and slots between main plugin and image viewer
             self.new_image.connect(self.main_plugin._on_new_image)
+            self.self_calib.connect(self.main_plugin._receive_calib)
             
             self.main_plugin.plugin_closed.connect(self._close_main_plugin)
             self.main_plugin.plugin_updated.connect(self._plugin_updated)
             self._refresh()
-
-            
+           
     def __add__(self, plugin):
         """Add plugin to ImageViewer"""
         plugin.attach(self)
         if plugin.dock:
             location = self.dock_areas[plugin.dock]
             dock_location = Qt.DockWidgetArea(location)
-            dock_widget = QtWidgets.QDockWidget()
+            dock_widget = QDockWidget()
             dock_widget.setAttribute(Qt.WA_DeleteOnClose)
             dock_widget.setWidget(plugin)
             dock_widget.setWindowTitle(plugin.name)
@@ -358,6 +388,7 @@ class ImageViewer(QtWidgets.QMainWindow):
         if self._has_img:
             img = self._show_current_img()
             self.new_image.emit(img)
+            self.self_calib.emit(self._calib)
             self._data_saved = False
             self.save_btn.setEnabled(True)
             if self._img_idx < len(self._img_names) - 1:
@@ -375,16 +406,43 @@ class ImageViewer(QtWidgets.QMainWindow):
         else:
             self._label_lvl = new_lvl
             self._refresh()
-    
+
     def save_data(self):
         """For subclass to implement more on how to save data"""
         self._data_saved = True
         self.save_btn.setEnabled(False)
+        if self.pdf_record.isChecked():
+            self.save_pdf_record()
+    
+    def save_pdf_record(self):
+        if not os.path.exists('pdf_record'):
+            os.makedirs('pdf_record')
+        with PdfPages('pdf_record\\' + self._img_names[self._img_idx] + '.pdf') as pdf:
+            pdf.savefig(self.fig)
         
     
     def _show_current_img(self):
+        self_calib = False
+        with read_tiff.TiffFile(self._path_list[self._img_idx]) as tif:
+            for page in tif:
+                for tag in page.tags.values():
+                    if tag.name == 'helios_metadata':
+                        if 'Scan' in tag.value:
+                            self._calib = tag.value['Scan']['PixelHeight']
+                            self_calib = True
+                            break
+                    if tag.name == 'sem_metadata':
+                        if '' in tag.value:
+                            self._calib = tag.value[''][3]
+                            self_calib = True
+                            break
+        if not self_calib:
+            self._calib = np.nan
+        self._disp_calib.setText('%.3f nm/pixel'%(self._calib * 10**9))
+        
         image = read_tiff.imread(self._path_list[self._img_idx])
-        # Some weird incompatibility between Python3.5 and 3.6 (DYL)
+        
+        # Some weird incompatibility between Python3.5 and 3.6 
         if len(image.shape) == 3:
             x, y, z = image.shape
             if x == 3:
@@ -443,10 +501,18 @@ class ImageViewer(QtWidgets.QMainWindow):
         """Show ImageViewer and attached plugins.
 
         This behaves much like `matplotlib.pyplot.show` and `QWidget.show`.
-        """       
+        """
+        splash_pix = QPixmap('welcome.png')
+        splash = QSplashScreen(splash_pix, Qt.WindowStaysOnTopHint)
+        splash.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        splash.show()
+        QApplication.processEvents()
+        time.sleep(2)
         self._show()
         if main_window:
+            splash.finish(self)
             start_qtapp()
+            
 
     def redraw(self):
         if self.useblit:
@@ -531,8 +597,8 @@ class ImageViewer(QtWidgets.QMainWindow):
         about = QMessageBox()
         about.setIcon(QMessageBox.Information)
         about.setTextFormat(QtCore.Qt.RichText)
-        info = ['<br> SSA version Beta 0.1 <br>',
-                'The Supervised SEM Auto-analysis software',
+        info = ['<br> SSA version Beta 0.11 <br>',
+                'The Supervised SEM/STEM Auto-analysis software',
                 'Copyright &copy; SSA project contributors',
                 'Licensed under the terms of MIT License',
                 '',
@@ -543,7 +609,6 @@ class ImageViewer(QtWidgets.QMainWindow):
                 ' information please contact: ' +
                 "<a href='mailto:{0}'>{0}</a><br><br>".format('dongyao.li@lamresearch.com') ]
         about.setText('<br>'.join(info))
-#        about.setInformativeText('\n'.join(info))
         about.setWindowTitle('About Supervised SEM Auto-analysis')
         about.setStandardButtons(QMessageBox.Ok)
         about.exec_()

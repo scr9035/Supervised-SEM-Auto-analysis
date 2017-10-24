@@ -10,7 +10,8 @@ from ..utils import new_plot
 
 from PyQt5.QtGui import QPalette
 from PyQt5.QtWidgets import (QWidget, QPushButton, QLabel, QLineEdit, QCheckBox,
-                             QGridLayout, QVBoxLayout, QFrame)
+                             QGridLayout, QVBoxLayout, QFrame, QScrollArea,
+                             QTabWidget)
 from PyQt5.QtCore import Qt
 
 
@@ -81,6 +82,8 @@ class NormalDist(Plugin):
         self._lim_artists = []
         self._ref_artists = []
         self.set_plugin_param()
+        
+        self._calib = np.nan
         # Whether to show the profile plot. Set it to false in subclass if too 
         # many profiles are shown, which can lag the software seriously.
         self._show_profile = True 
@@ -105,7 +108,7 @@ class NormalDist(Plugin):
         self.cd_lines = [[None for _ in range(self._lvl_count)] for _ in range(self._channel_count)]
             
     def _on_new_image(self, image, same_img=False):
-        """Override this method to specify requirements of any front end plugins 
+        """Override this method to specify requirements of any frontend plugins 
         when new images are loaded.
         """
         super()._on_new_image(image)
@@ -118,7 +121,10 @@ class NormalDist(Plugin):
         self._crop_img()
         self.set_plugin_param()
         self.reset_plugin()
-                   
+    
+    def _receive_calib(self, calib):
+        self._calib = calib
+    
     def _crop_img(self):
         """Crop the raw image using the limiting lines
         
@@ -213,13 +219,26 @@ class NormalDist(Plugin):
         """
         super().attach(image_viewer)
         # Two main sections used in this plugin
-#        self.control_section = QtWidgets.QVBoxLayout()
         self.control_section = QWidget()
         self.control_section.setLayout(QVBoxLayout())
+        
+#        self.tabs_section = QTabWidget()
+#        self.tabs_section.setStyleSheet("QTabWidget::pane { border: 0.1; }")
+        
+        
         self.plot_section = QWidget()
         self.plot_section.setLayout(QGridLayout())
+#        self.tabs_section.addTab(self.plot_section, 'LineProfile')
         if not self._show_profile:
             self.plot_section.hide()
+            
+#        self.plot_container = QWidget()
+#        self.plot_container.setLayout(QVBoxLayout())
+#        if not self._show_profile:
+#            self.plot_container.hide()
+#        self.plot_section = QScrollArea()
+#        self.plot_section.setLayout(QGridLayout())
+#        self.plot_container.layout().addWidget(self.plot_section)
         
         control_layout = self.control_section.layout()
         control_layout.addWidget(QLabel('Measurement Mode:'))
@@ -228,11 +247,11 @@ class NormalDist(Plugin):
         mode_disp.setReadOnly(True)
         control_layout.addWidget(mode_disp)
         
-        cb = QCheckBox('Show Profile')
+        self._profile_cb = QCheckBox('Show Profile')
         if self._show_profile:
-            cb.toggle()
-        cb.stateChanged.connect(self._display_profiles)
-        control_layout.addWidget(cb)
+            self._profile_cb.toggle()
+        self._profile_cb.stateChanged.connect(self._display_profiles)
+        control_layout.addWidget(self._profile_cb)    
         
         hline = QFrame()
         hline.setFrameShape(QFrame.HLine)
@@ -288,6 +307,7 @@ class NormalDist(Plugin):
         
         self.layout.addWidget(self.control_section, 0, 0)
         self.layout.addWidget(self.plot_section, 0, 1)
+#        self._check_visible_tabs()
           
     def _display_profiles(self, state):
         if state == Qt.Checked:
@@ -296,6 +316,19 @@ class NormalDist(Plugin):
         else:
             self._show_profile = False
             self.plot_section.hide()
+#        self._check_visible_tabs()
+            
+#    def _check_visible_tabs(self):
+#        all_hidden = True
+#        for i in range(self.tabs_section.count()):
+#            widget = self.tabs_section.widget(i)
+#            if not widget.isHidden():
+#                all_hidden = False
+#                break
+#        if all_hidden:
+#            self.tabs_section.hide()
+#        else:
+#            self.tabs_section.show()
     
     def _use_top_lim(self, state):
         if state == Qt.Checked:

@@ -1,6 +1,6 @@
 from textwrap import dedent
 
-from ..qt import QtGui, QtCore
+from PyQt5 import QtGui, QtCore
 import numpy as np
 
 from skimage import io, img_as_ubyte

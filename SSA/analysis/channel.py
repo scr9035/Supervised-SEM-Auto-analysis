@@ -7,6 +7,7 @@ import numpy as np
 import scipy.signal as spysig
 from . import GeneralProcess
 import matplotlib.pyplot as plt
+from skimage import exposure
 
 def IntensInterface(image, ref_range=[0,np.Inf], axis=1, smooth=2000, iteration=10, 
                     width=np.arange(5,10)):
@@ -80,7 +81,7 @@ def ChannelEdgeGrad(line, center, vert_height=1):
             break
     return left_edge, right_edge
 
-def VertiChannel(image, reference, scale=0.5, mode='up', target='dark'):
+def VertiChannel(image, reference, scale=0.5, mode='up', target='dark', quality='equ_dist'):
     '''
     mode : str
         up, if the reference line is located higher than the channels
@@ -88,14 +89,64 @@ def VertiChannel(image, reference, scale=0.5, mode='up', target='dark'):
     target : str, 'dark' or 'bright'
     '''
     y_lim, x_lim = image.shape
+        
     if mode == 'up':
         hori = np.sum(image[int(round(reference)):, :], axis=0)/(y_lim-int(round(reference)))
     elif mode == 'down':
         hori = np.sum(image[:int(round(reference)), :], axis=0)/(int(round(reference)))
-    thres = GeneralProcess.GaussianMixThres(hori, components=2, scale=scale)
-#    plt.plot(hori)
-#    plt.plot([0, len(hori)-1], [thres, thres])                                       
-#    plt.show()  
+    
+    img_cdf, cdf_centers = exposure.cumulative_distribution(hori) 
+    
+    if quality == 'equ_dist':
+
+        peak_value = cdf_centers[np.argmin(np.abs(img_cdf - 0.5))]
+        means_init=[[0.5 * (peak_value+np.min(cdf_centers))], [peak_value]]
+        thres = GeneralProcess.GaussianMixThres(hori, means_init=means_init, components=2, scale=scale)
+    if quality == 'uneven' or thres is None:
+        if mode == 'up':
+            seg = image[int(round(reference)):, :]
+        elif mode == 'down':
+            seg = image[:int(round(reference)), :]
+        hist, bin_centers = exposure.histogram(seg)
+        plt.plot(bin_centers, hist)
+        plt.show()
+        hist, bin_centers = exposure.histogram(hori)
+        
+        low_lim = bin_centers[np.argmin(np.abs(img_cdf - 0.1))]
+        high_lim = bin_centers[np.argmin(np.abs(img_cdf - 0.6))]
+        peak_value = bin_centers[np.argmin(np.abs(img_cdf - 0.5))]
+        x1 = np.min(cdf_centers)
+        y1 = 0
+        x2 = (peak_value + x1) / 2
+        y2 = img_cdf[np.argmin(np.abs(cdf_centers- x2))]
+        x4 = np.max(cdf_centers)
+        y4 = 1
+        x3 = (peak_value + x4) / 2
+        y3 = img_cdf[np.argmin(np.abs(cdf_centers- x3))]
+        
+        beta0 = [y1, x2, y2, x3, y3, y4]
+        coef, _ = GeneralProcess.TriLineFit(cdf_centers, img_cdf, x1, x4, beta0)
+        
+        plt.plot(bin_centers, hist)
+        plt.show()
+        plt.plot(cdf_centers, img_cdf)
+        plt.plot(cdf_centers, GeneralProcess.TriLineBendFunction(coef, cdf_centers, x1, x4))
+        plt.plot(cdf_centers, GeneralProcess.TriLineBendFunction(beta0, cdf_centers, x1, x4))
+        plt.scatter([x1, x2, x3, x4], [y1, y2, y3, y4])
+        plt.vlines(peak_value, 0, 1)
+        plt.show()
+        thres = 0.75 * coef[1] + 0.25 * x1
+        if thres < low_lim or thres > high_lim:
+            peak_value = cdf_centers[np.argmin(np.abs(img_cdf - 0.5))]
+            means_init=[[0.5 * (peak_value+np.min(cdf_centers))], [peak_value]]
+            thres2 = GeneralProcess.GaussianMixThres(hori, means_init=means_init, components=2, scale=scale)
+            if thres2 is not None:
+                thres = thres2
+       
+    plt.plot(hori)
+    plt.plot([0, len(hori)-1], [thres, thres])                                       
+    plt.show()  
+
     if target == 'dark':
         bi_line = hori > thres
     elif target == 'bright':
@@ -176,7 +227,7 @@ def ChannelCD(image, measured_lvl, algo='fit', find_ref=True, ref_range=[0,np.In
         except ValueError:
             print('The format of reference line is incorrect')
     
-    channel_count, channel_center, plateau = VertiChannel(image, reference, mode=mode)
+    channel_count, channel_center, plateau = VertiChannel(image, reference, mode=mode, scale=0.4)
     
     channel_cd = [[] for _ in range(channel_count)]
     channel_points = [[] for _ in range(channel_count)]
@@ -246,21 +297,21 @@ def BulkCD(image, sample, start_from, algo='fit', find_ref=True, ref_range=[0,np
     
     y_lim, x_lim = image.shape
     channel_count, channel_center, plateau = VertiChannel(image, reference, 
-                                                          mode=mode, scale=0, 
-                                                          target='bright')
+                                                          mode=mode, scale=0.2, 
+                                                          target='dark', quality='uneven')
     
-    channel_width = np.diff(plateau)
+    channel_width = np.diff(channel_center)
     channel_width = list(zip(channel_width, range(len(channel_width))))
     channel_width.sort(reverse=True)
     bulk_idx = np.array(channel_width)[:3, 1].astype(int)
     
     if mode == 'up':
-        lvl = np.arange(reference + start_from, y_lim, sample)
+        lvls = np.arange(reference + start_from, y_lim, sample)
     elif mode == 'down':
-        lvl = np.arange(10, reference - start_from, sample)
+        lvls = np.arange(10, reference - start_from, sample)
         
-    channel_cd = [[] for _ in range(len(bulk_idx))]
-    channel_points = [[] for _ in range(len(bulk_idx))]
+    channel_cd = [[] for _ in range(len(bulk_idx) * 2)]
+    channel_points = [[] for _ in range(len(bulk_idx) * 2)]
     
     if scan % 2 == 0:
         before = scan // 2
@@ -268,38 +319,57 @@ def BulkCD(image, sample, start_from, algo='fit', find_ref=True, ref_range=[0,np
     else:
         before = scan // 2
         after = scan // 2 + 1
-    
-    for lvl in lvl:
+        
+    for lvl in lvls:
         line_seg = np.sum(image[lvl-before:lvl+after,:], axis=0) / scan
         for i in range(len(bulk_idx)):
             idx = bulk_idx[i]
-            center = int(round(channel_center[idx]))
-            left = int(round(plateau[idx]))
-            right = int(round(plateau[idx + 1]))
-            x_L = np.arange(left, center)
-            y_L = line_seg[left:center]
-            x_R = np.arange(center, right)
-            y_R = line_seg[center:right]
+            
+            left_center = int(round(channel_center[idx]))
+            left_left = int(round(plateau[idx]))
+            left_right = int(round(plateau[idx + 1]))
+            x_L = np.arange(left_left, left_center)
+            y_L = line_seg[left_left:left_center]
+            x_R = np.arange(left_center, left_right)
+            y_R = line_seg[left_center:left_right]
             
             if algo == 'fit':
-                left_edge = GeneralProcess.LGSemEdge(x_L, y_L, threshold=threshold, 
-                                                 orientation='forward')                   
-                right_edge = GeneralProcess.LGSemEdge(x_R, y_R, threshold=threshold,
-                                                  orientation='backward')
-                if left_edge is None or right_edge is None:
-                    left_edge, right_edge = ChannelEdgeIntens(line_seg[left:right], 
-                                                              center-left, vert_height=threshold/100.0)
-                    left_edge += left
-                    right_edge += left
-            elif algo == 'easy':
-                left_edge, right_edge = ChannelEdgeIntens(line_seg[left:right], 
-                                                              center-left, vert_height=threshold/100.0)
-                left_edge += left
-                right_edge += left
-            channel_cd[i].append(right_edge-left_edge)
-            channel_points[i].append([[left_edge, lvl], [right_edge, lvl]])
+                left_left_edge = GeneralProcess.LGSemEdge(x_L, y_L, threshold=threshold, 
+                                                 orientation='backward')                   
+                left_right_edge = GeneralProcess.LGSemEdge(x_R, y_R, threshold=threshold,
+                                                  orientation='forward')
+                if left_left_edge is None or left_right_edge is None:
+                    left_left_edge, left_right_edge = ChannelEdgeIntens(line_seg[left_left:left_right], 
+                                                              left_center-left_left, vert_height=threshold/100.0)
+                    left_left_edge += left_left
+                    left_right_edge += left_left
+            
+            channel_cd[2*i].append(left_right_edge-left_left_edge)
+            channel_points[2*i].append([[left_left_edge, lvl], [left_right_edge, lvl]])
+            
+            right_center = int(round(channel_center[idx + 1]))
+            right_left = int(round(plateau[idx + 1]))
+            right_right = int(round(plateau[idx + 2]))
+            x_L = np.arange(right_left, right_center)
+            y_L = line_seg[right_left:right_center]
+            x_R = np.arange(right_center, right_right)
+            y_R = line_seg[right_center:right_right]
+            
+            if algo == 'fit':
+                right_left_edge = GeneralProcess.LGSemEdge(x_L, y_L, threshold=threshold, 
+                                                 orientation='backward')                   
+                right_right_edge = GeneralProcess.LGSemEdge(x_R, y_R, threshold=threshold,
+                                                  orientation='forward')
+                if right_left_edge is None or right_right_edge is None:
+                    right_left_edge, right_right_edge = ChannelEdgeIntens(line_seg[right_left:right_right], 
+                                                              right_center-right_left, vert_height=threshold/100.0)
+                    right_left_edge += right_left
+                    right_right_edge += right_left
+
+            channel_cd[2*i+1].append(right_right_edge-right_left_edge)
+            channel_points[2*i+1].append([[right_left_edge, lvl], [right_right_edge, lvl]])
     
-    return 3, reference, channel_cd, lvl, channel_points, channel_center, plateau
+    return 6, reference, channel_cd, lvl, channel_points, channel_center, plateau
     
     
 
@@ -379,6 +449,62 @@ def RemainMask(image, ref, scan=1, noise=5000, iteration=0):
     return channel_count, height, top_points, channel_center, plateau
 
 
+def FourierTilt(image, ref, tot_num_channels, start=0, end=np.infty, scan=1):
+    y_lim, x_lim = image.shape
+    guess_freq = tot_num_channels / float(x_lim)
+    upper_lim = guess_freq * 1.5
+    lower_lim = guess_freq * 0.5
+    row = np.arange(ref + start, min(end + ref, y_lim), scan)      
+    theta = []
+    idx_list = []
+    for i in row:
+        hori = np.sum(image[i:i+scan,:], axis=0)
+        ft = np.fft.fft(hori) / 10**7
+        freq = np.fft.fftfreq(hori.shape[-1])        
+        posi_mask = np.logical_and(freq > lower_lim, freq < upper_lim) 
+        freq = freq[posi_mask]
+        ft = ft[posi_mask]
+        idx = np.argmax(np.abs(ft))
+        idx_list.append(idx)
+        
+    avg_idx = int(np.mean(idx_list))
+    avg_freq = freq[avg_idx]
+        
+    for i in row:
+        hori = np.sum(image[i:i+scan,:], axis=0)
+        ft = np.fft.fft(hori) / 10**7
+        freq = np.fft.fftfreq(hori.shape[-1])
+        posi_mask = np.logical_and(freq > lower_lim, freq < upper_lim)
+        ft = ft[posi_mask]
+        angle = np.arctan2(ft.imag[avg_idx], ft.real[avg_idx])
+        if len(theta) > 0:
+            if angle - theta[-1] > np.pi:
+                angle -= np.pi * 2
+            elif angle - theta[-1] < - np.pi:
+                angle += np.pi * 2
+        theta.append(angle)
+    
+    
+    theta = - (theta - theta[0])
+    pix_shift = (theta / (2 * np.pi)) / avg_freq
+    row = row - ref    
+    theta = np.array(theta)
+   
+    z_ref = np.polyfit(row, pix_shift, 1)
+    p_ref = np.poly1d(z_ref)
+    f = plt.figure(figsize=plt.figaspect(3))
+    plt.plot((-theta*180/np.pi), row, '.')
+    plt.xlabel('Phase')
+    plt.show()
+    print('The angle is: %.3f'%(np.arctan(z_ref[0]) * 180/np.pi))
+    plt.plot(row, pix_shift, '.')
+    plt.plot(row, p_ref(row), 'r')
+    plt.xlabel('Pixel')
+    plt.show()
+    
+    return row, pix_shift
+
+
 def FinEdge(image, measured_lvl, find_ref=True, threshold=99, ref_range=[0,np.Inf], 
             scan=1, mode='up', field='dark'):
     if find_ref is None:
@@ -416,6 +542,8 @@ def FinEdge(image, measured_lvl, find_ref=True, threshold=99, ref_range=[0,np.In
         before = scan // 2
         after = scan // 2 + 1
     
+    
+    
     for lvl in measured_lvl:
         for i in range(channel_count):
             line_seg = np.sum(image[lvl-before:lvl+after,:], axis=0) / scan
@@ -441,11 +569,7 @@ def FinEdge(image, measured_lvl, find_ref=True, threshold=99, ref_range=[0,np.In
                 left_edge = GeneralProcess.SigmoEdge(x1, y1, threshold=threshold, 
                                                      orientation='forward')
                 right_edge = GeneralProcess.SigmoEdge(x2, y2, threshold=threshold, 
-                                                      orientation='backward')
-#            left_edge = GeneralProcess.LGStemEdge(x1, y1, threshold=threshold, 
-#                                                 orientation='backward')               
-#            right_edge = GeneralProcess.LGStemEdge(x2, y2, threshold=threshold, 
-#                                                  orientation='forward')          
+                                                      orientation='backward')        
             channel_cd[i].append(right_edge-left_edge)
             channel_points[i].append([[left_edge, lvl], [right_edge, lvl]]) 
     return channel_count, reference, channel_cd, channel_points, channel_center, plateau

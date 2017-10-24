@@ -95,7 +95,7 @@ def TopGeometryAnalysis(image, shape='ellip'):
         
     return properties
 
-def GridMatching(image_fit, grid='rect', remove_label=True, open_limit=40, angle_diff=2):
+def GridMatching(image_fit, grid='rect', open_limit=40, angle_diff=2):
     """Find grid of features and count capping
     
     Parameters

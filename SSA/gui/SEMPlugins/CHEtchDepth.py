@@ -18,11 +18,6 @@ class CHEtchDepth(NormalDist):
     """
     name = 'Channel Hole Etch Depth Measurements'
     data_transfer_sig = pyqtSignal(list, list, dict)
-    calib_dict = {'100K' : 1.116503,
-                  '50K' : 2.233027,
-                  '20K' : 5.582623,
-                  '12K' : 9.304371,
-                  '10K' : 11.16579}
     _lvl_name=['Depth']
     
     information = ('Measurement: Channel hole depth from interface to etch front',
@@ -42,23 +37,19 @@ class CHEtchDepth(NormalDist):
                 setting_dict = json.load(f)
                 self._number_of_channel = setting_dict['Channel']
                 self._scan_to_avg = setting_dict['Scan']
-                self._mag = setting_dict['Mag']
         except:
             self._number_of_channel = 20
             self._scan_to_avg = 3     
-            self._mag = '12K'
         
+        self._manual_calib = 1
+        self._extra_control_widget.append(QLabel('Manual Calibration (nm/pixel):'))
+        self._input_manual_calib = QLineEdit()
+        if self._calib is np.nan:
+            self._input_manual_calib.setText(str(self._manual_calib))
+        self._input_manual_calib.editingFinished.connect(self._change_manual_calib)
+        self._extra_control_widget.append(self._input_manual_calib)
+                
         self._threshold = 100
-              
-        self._calib = self.calib_dict[self._mag]        
-        self._extra_control_widget.append(QLabel('Magnification:'))
-        self._choose_mag = QComboBox()
-        for key in self.calib_dict.keys():
-            self._choose_mag.addItem(key)
-        self._choose_mag.setCurrentText(self._mag)
-        self._choose_mag.activated[str].connect(self._set_mag)
-        self._extra_control_widget.append(self._choose_mag)
-        
         self._extra_control_widget.append(QLabel('Number of Channel:'))
         self._input_channel_number = QLineEdit()
         self._input_channel_number.setText(str(self._number_of_channel))
@@ -77,16 +68,22 @@ class CHEtchDepth(NormalDist):
     
     def _saveSettings(self, file_name):                
         setting_dict = {'Scan' : self._scan_to_avg,
-                        'Mag' : self._mag,
                         'Channel' : self._number_of_channel}
         with open(file_name, 'w') as f:
             json.dump(setting_dict, f)
     
-    def _set_mag(self, magnification):
-        self._mag = magnification
-        self._calib = self.calib_dict[self._mag]
-        self._update_plugin()
+    def _receive_calib(self, calib):
+        super()._receive_calib(calib)
+        if self._calib is not np.nan:
+            self._input_manual_calib.setEnabled(False) 
     
+    def _change_manual_calib(self):
+        try:
+            self._manual_calib = float(self._input_manual_calib)
+            self._update_plugin()
+        except:
+            return
+            
     def _change_channel_number(self):
         try:
             self._number_of_channel = int(self._input_channel_number.text())
@@ -107,13 +104,19 @@ class CHEtchDepth(NormalDist):
     
     def data_transfer(self):
         """Function override to transfer raw data to measurement data """
-        raw_data = np.transpose(self._cd_data) * self._calib
+        if self._calib is not np.nan:
+            calib = self._calib * 10**9
+        else:
+            calib = self._manual_calib
+            
+        raw_data = np.transpose(self._cd_data) * calib
         for i in range(self._lvl_count):
             self.data[self._lvl_name[i]] = raw_data[i]
         hori_header = ['Ch %i' %n for n in range(1,self._channel_count+1)]
         self.data_transfer_sig.emit(self._lvl_name, hori_header, self.data)
     
     def AutoCHEtchDepth(self, image, interface=None):
+        spare_channel = 1
         y_lim, x_lim = image.shape
         if interface is None:
             ref_range = [int(y_lim/10), y_lim]
@@ -125,15 +128,15 @@ class CHEtchDepth(NormalDist):
                         = ChannelDepth(image, ref_line_y, threshold=self._threshold, 
                                        scan=self._scan_to_avg, mag='low')            
         num = self._number_of_channel
-        if self._number_of_channel > channel_count-5:
-            num = channel_count-5
+        if self._number_of_channel > channel_count - spare_channel:
+            num = channel_count - spare_channel
         
         length = [[] for _ in range(num)]
         cd_points = [[] for _ in range(num)]
         
         for i in range(num):
-            length[num-1-i].append(_depth[channel_count-i-5])
-            cd_points[num-1-i].append(_depth_points[channel_count-i-5])
+            length[num-1-i].append(_depth[channel_count-i-spare_channel])
+            cd_points[num-1-i].append(_depth_points[channel_count-i-spare_channel])
         # DYL: Here depth array must be FLOAT ARRAY in order to use the numpy.nan
         # There is no numpy.nan for INT!!!
         return num, ref_line_y, length, cd_points

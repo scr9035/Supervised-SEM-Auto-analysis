@@ -18,11 +18,6 @@ class CHMaxBowCD(NormalDist):
     """
     name = 'Channel Hole Max Bow CD Measurements'
     data_transfer_sig = pyqtSignal(list, list, dict)
-    calib_dict = {'100K' : 1.116503,
-                  '50K' : 2.233027,
-                  '20K' : 5.582623,
-                  '12K' : 9.304371,
-                  '10K' : 11.16579}
     _lvl_name=['Max Bow']
     
     information = ('Measurement level: Max Bow (maximum CD through channel)',
@@ -38,23 +33,19 @@ class CHMaxBowCD(NormalDist):
             with open('CHMaxBowSetting.json', 'r') as f:
                 setting_dict = json.load(f)
                 self._scan_to_avg = setting_dict['Scan']
-                self._mag = setting_dict['Mag']
                 self._threshold = setting_dict['Threshold']
         except:
-            self._scan_to_avg = 5    
-            self._mag = '50K'   
+            self._scan_to_avg = 5     
             self._threshold = 100
         
-        self._calib = self.calib_dict[self._mag]
-        
-        self._extra_control_widget.append(QLabel('Magnification:'))
-        self._choose_mag = QComboBox()
-        for key in self.calib_dict.keys():
-            self._choose_mag.addItem(key)
-        self._choose_mag.setCurrentText(self._mag)
-        self._choose_mag.activated[str].connect(self._set_mag)
-        self._extra_control_widget.append(self._choose_mag)
-        
+        self._manual_calib = 1
+        self._extra_control_widget.append(QLabel('Manual Calibration (nm/pixel):'))
+        self._input_manual_calib = QLineEdit()
+        if self._calib is np.nan:
+            self._input_manual_calib.setText(str(self._manual_calib))
+        self._input_manual_calib.editingFinished.connect(self._change_manual_calib)
+        self._extra_control_widget.append(self._input_manual_calib)
+                
         self._extra_control_widget.append(QLabel('Scan to Avg:'))
         self._input_scan_avg = QLineEdit()
         self._input_scan_avg.setText(str(self._scan_to_avg))
@@ -73,16 +64,22 @@ class CHMaxBowCD(NormalDist):
     
     def _saveSettings(self, file_name):                
         setting_dict = {'Scan' : self._scan_to_avg,
-                        'Mag' : self._mag,
                         'Threshold' : self._threshold}
         with open(file_name, 'w') as f:
             json.dump(setting_dict, f)
-            
-    def _set_mag(self, magnification):
-        self._mag = magnification
-        self._calib = self.calib_dict[self._mag]
-        self._update_plugin()
     
+    def _receive_calib(self, calib):
+        super()._receive_calib(calib)
+        if self._calib is not np.nan:
+            self._input_manual_calib.setEnabled(False)
+    
+    def _change_manual_calib(self):
+        try:
+            self._manual_calib = float(self._input_manual_calib)
+            self._update_plugin()
+        except:
+            return
+
     def _change_scan_avg(self):
         try:
             self._scan_to_avg = int(self._input_scan_avg.text())
@@ -110,13 +107,19 @@ class CHMaxBowCD(NormalDist):
         
     def data_transfer(self):
         """Function override to transfer raw data to measurement data """
-        raw_data = np.transpose(self._cd_data) * self._calib   
+        if self._calib is not np.nan:
+            calib = self._calib * 10**9
+        else:
+            calib = self._manual_calib
+            
+        raw_data = np.transpose(self._cd_data) * calib   
         for i in range(self._lvl_count):
             self.data[self._lvl_name[i]] = raw_data[i]
         hori_header = ['Ch %i' %n for n in range(1,self._channel_count+1)]
         self.data_transfer_sig.emit(self._lvl_name, hori_header, self.data)
     
     def AutoCHMaxBowCD(self, image, interface=None):
+            
         y_lim, x_lim = image.shape
         bow_lvl = np.arange(10, y_lim, self._scan_to_avg)
         

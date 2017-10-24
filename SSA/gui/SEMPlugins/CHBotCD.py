@@ -20,11 +20,11 @@ class CHBotCD(NormalDist):
     """
     name = 'Channel Hole Bot CD Measurements'
     data_transfer_sig = pyqtSignal(list, list, dict)
-    calib_dict = {'100K' : 1.116503,
-                  '50K' : 2.233027,
-                  '20K' : 5.582623,
-                  '12K' : 9.304371,
-                  '10K' : 11.16579}
+#    calib_dict = {'100K' : 1.116503,
+#                  '50K' : 2.233027,
+#                  '20K' : 5.582623,
+#                  '12K' : 9.304371,
+#                  '10K' : 11.16579}
     _lvl_name=['WL17', 'DMY0', 'BCD']
     
     information = ('Measurement level: WL17, DMY0, BCD',
@@ -45,22 +45,30 @@ class CHBotCD(NormalDist):
                 self._DMY0 = setting_dict['DMY0']
                 self._scan_to_avg = setting_dict['Scan']
                 self._threshold = setting_dict['Threshold']
-                self._mag = setting_dict['Mag']
+#                self._mag = setting_dict['Mag']
         except:
             self._WL17 = 1280
             self._DMY0 = 230
             self._scan_to_avg = 3
             self._threshold = 100
-            self._mag = '50K'
+#            self._mag = '50K'
+
+        self._manual_calib = 1
+        self._extra_control_widget.append(QLabel('Manual Calibration (nm/pixel):'))
+        self._input_manual_calib = QLineEdit()
+        if self._calib is np.nan:
+            self._input_manual_calib.setText(str(self._manual_calib))
+        self._input_manual_calib.editingFinished.connect(self._change_manual_calib)
+        self._extra_control_widget.append(self._input_manual_calib)
             
-        self._calib = self.calib_dict[self._mag]
-        self._extra_control_widget.append(QLabel('Magnification:'))
-        self._choose_mag = QComboBox()
-        for key in self.calib_dict.keys():
-            self._choose_mag.addItem(key)
-        self._choose_mag.setCurrentText(self._mag)
-        self._choose_mag.activated[str].connect(self._set_mag)
-        self._extra_control_widget.append(self._choose_mag)
+#        self._calib = self.calib_dict[self._mag]
+#        self._extra_control_widget.append(QLabel('Magnification:'))
+#        self._choose_mag = QComboBox()
+#        for key in self.calib_dict.keys():
+#            self._choose_mag.addItem(key)
+#        self._choose_mag.setCurrentText(self._mag)
+#        self._choose_mag.activated[str].connect(self._set_mag)
+#        self._extra_control_widget.append(self._choose_mag)
         
         self._extra_control_widget.append(QLabel('WL17 Level:'))
         self._input_WL17 = QLineEdit()
@@ -94,14 +102,18 @@ class CHBotCD(NormalDist):
         setting_dict = {'WL17' : self._WL17, 
                         'DMY0' : self._DMY0,
                         'Scan' : self._scan_to_avg,
-                        'Threshold' : self._threshold,
-                        'Mag' : self._mag}
+                        'Threshold' : self._threshold}
         with open(file_name, 'w') as f:
             json.dump(setting_dict, f)
     
     def AutoCHBotCD(self, image, interface=None):
-        WL17_lvl = round(self._WL17/self._calib)
-        DMY0_lvl = round(self._DMY0/self._calib)
+        if self._calib is not np.nan:
+            calib = self._calib * 10**9
+        else:
+            calib = self._manual_calib
+            
+        WL17_lvl = round(self._WL17/calib)
+        DMY0_lvl = round(self._DMY0/calib)
         BCD_lvl = 0
         bot_lvls = np.array([WL17_lvl, DMY0_lvl, BCD_lvl])
         
@@ -120,23 +132,40 @@ class CHBotCD(NormalDist):
                                 noise=1000, iteration=0, mode='down')
                          
         return channel_count, ref_line, bot_cd, bot_cd_points
-    
-    def _set_mag(self, magnification):
-        self._mag = magnification
-        self._calib = self.calib_dict[self._mag]
-        self._update_plugin()
+   
+#    def _set_mag(self, magnification):
+#        self._mag = magnification
+#        self._calib = self.calib_dict[self._mag]
+#        self._update_plugin()
     
     def data_transfer(self):
         """Function override to transfer raw data to measurement data """
-        raw_data = np.transpose(self._cd_data) * self._calib      
+        if self._calib is not np.nan:
+            calib = self._calib * 10**9
+        else:
+            calib = self._manual_calib
+            
+        raw_data = np.transpose(self._cd_data) * calib      
         for i in range(self._lvl_count):
             self.data[self._lvl_name[i]] = raw_data[i]
         hori_header = ['Ch %i' %n for n in range(1,self._channel_count+1)]
         self.data_transfer_sig.emit(self._lvl_name, hori_header, self.data)
+                
+    def _receive_calib(self, calib):
+        super()._receive_calib(calib)
+        if self._calib is not np.nan:
+            self._input_manual_calib.setEnabled(False)
     
     def _update_plugin(self):
         self._on_new_image(self._full_image, same_img=True)
         super()._update_plugin()
+        
+    def _change_manual_calib(self):
+        try:
+            self._manual_calib = float(self._input_manual_calib)
+            self._update_plugin()
+        except:
+            return
     
     def _change_WL17(self):
         try:

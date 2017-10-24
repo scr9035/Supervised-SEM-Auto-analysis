@@ -6,6 +6,8 @@ from .CHRMask import CHRMask
 from .CHRecess import CHRecess
 from .CHDimple import CHDimple
 from .CHYCutBulk import CHYCutBulk
+from .CHTilt import CHTilt
+from .CHCap import CHCap
 from .FinEdge import FinEdge
 from .FinDepth import FinDepth
 from .STIn5Edge import STIn5Edge

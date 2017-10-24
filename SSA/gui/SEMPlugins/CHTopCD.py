@@ -17,11 +17,11 @@ class CHTopCD(NormalDist):
         Any plugin needs to implement data trasfer sigal or otherwise the image 
         viewer won't be able to receive the data
     """
-    calib_dict = {'100K' : 1.116503,
-                  '50K' : 2.233027,
-                  '20K' : 5.582623,
-                  '12K' : 9.304371,
-                  '10K' : 11.16579}
+#    calib_dict = {'100K' : 1.116503,
+#                  '50K' : 2.233027,
+#                  '20K' : 5.582623,
+#                  '12K' : 9.304371,
+#                  '10K' : 11.16579}
     name = 'Channel Hole Top CD Measurements'
     data_transfer_sig = pyqtSignal(list, list, dict)
     _lvl_name=['TEOS','SSL2']
@@ -43,23 +43,31 @@ class CHTopCD(NormalDist):
                 self._SSL2 = setting_dict['SSL2']
                 self._scan_to_avg = setting_dict['Scan']
                 self._threshold = setting_dict['Threshold']
-                self._mag = setting_dict['Mag']
+#                self._mag = setting_dict['Mag']
         except:
             self._TEOS = 100
             self._SSL2 = 420
             self._scan_to_avg = 5
             self._threshold = 100        
-            self._mag = '50K'
-            
-        self._calib = self.calib_dict[self._mag]
-        self._extra_control_widget.append(QLabel('Magnification:'))
-        self._choose_mag = QComboBox()
-        for key in self.calib_dict.keys():
-            self._choose_mag.addItem(key)
-        self._choose_mag.setCurrentText(self._mag)
-        self._choose_mag.activated[str].connect(self._set_mag)
-        self._extra_control_widget.append(self._choose_mag)
+#            self._mag = '50K'
+
+        self._manual_calib = 1   
+#        self._calib = self.calib_dict[self._mag]
+#        self._extra_control_widget.append(QLabel('Magnification:'))
+#        self._choose_mag = QComboBox()
+#        for key in self.calib_dict.keys():
+#            self._choose_mag.addItem(key)
+#        self._choose_mag.setCurrentText(self._mag)
+#        self._choose_mag.activated[str].connect(self._set_mag)
+#        self._extra_control_widget.append(self._choose_mag)
         
+        self._extra_control_widget.append(QLabel('Manual Calibration (nm/pixel):'))
+        self._input_manual_calib = QLineEdit()
+        if self._calib is np.nan:
+            self._input_manual_calib.setText(str(self._manual_calib))
+        self._input_manual_calib.editingFinished.connect(self._change_manual_calib)
+        self._extra_control_widget.append(self._input_manual_calib)
+
         self._extra_control_widget.append(QLabel('SSL2 Level (nm):'))
         self._input_ssl2 = QLineEdit()
         self._input_ssl2.setText(str(self._SSL2))
@@ -86,16 +94,22 @@ class CHTopCD(NormalDist):
         setting_dict = {'TEOS' : self._TEOS, 
                         'SSL2' : self._SSL2,
                         'Scan' : self._scan_to_avg,
-                        'Threshold' : self._threshold,
-                        'Mag' : self._mag}
+                        'Threshold' : self._threshold}
         with open(file_name, 'w') as f:
             json.dump(setting_dict, f)
     
-    def _set_mag(self, magnification):
-        self._mag = magnification
-        self._calib = self.calib_dict[self._mag]
-        self._update_plugin()
+#    def _set_mag(self, magnification):
+#        self._mag = magnification
+#        self._calib = self.calib_dict[self._mag]
+#        self._update_plugin()
     
+    def _change_manual_calib(self):
+        try:
+            self._manual_calib = float(self._input_manual_calib)
+            self._update_plugin()
+        except:
+            return
+            
     def _change_ssl2(self):
         try:
             self._SSL2 = int(self._input_ssl2.text())
@@ -124,13 +138,23 @@ class CHTopCD(NormalDist):
         except:
             return
     
+    def _receive_calib(self, calib):
+        super()._receive_calib(calib)
+        if self._calib is not np.nan:
+            self._input_manual_calib.setEnabled(False) 
+    
     def _update_plugin(self):
-        self._on_new_image(self._full_image, same_img=True)
+        self._on_new_image(self._full_image, same_img=True)        
         super()._update_plugin()
         
     def data_transfer(self):
         """Function override to transfer raw data to measurement data """
-        raw_data = np.transpose(self._cd_data) * self._calib
+        if self._calib is not np.nan:
+            calib = self._calib * 10**9
+        else:
+            calib = self._manual_calib
+        
+        raw_data = np.transpose(self._cd_data) * calib
         
         for i in range(self._lvl_count):
             self.data[self._lvl_name[i]] = raw_data[i]
@@ -138,9 +162,13 @@ class CHTopCD(NormalDist):
         self.data_transfer_sig.emit(self._lvl_name, hori_header, self.data)
     
     def AutoCHTopCD(self, image, interface=None):
+        if self._calib is not np.nan:
+            calib = self._calib * 10**9
+        else:
+            calib = self._manual_calib
         
-        TEOS_lvl = np.arange(5, int(round(self._TEOS/self._calib)), self._scan_to_avg)
-        SSL2_lvl = np.array([int(round(self._SSL2/self._calib))])
+        TEOS_lvl = np.arange(5, int(round(self._TEOS/calib)), self._scan_to_avg)
+        SSL2_lvl = np.array([int(round(self._SSL2/calib))])
         y_lim, x_lim = image.shape
         
         if interface is None:            

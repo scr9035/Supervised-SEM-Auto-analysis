@@ -9,7 +9,6 @@ import pandas as pd
 import numpy as np
 import copy
 import json
-import matplotlib.pyplot as plt
 
 class XSEMViewer(ImageViewer):
     """Subclass of ImageViewer. Front end image viewer.
@@ -102,7 +101,7 @@ class XSEMViewer(ImageViewer):
             self._chip_name_pos = pos
         else:
             self.chip_name = self.image_name
-            self._chip_name_pos = None
+            self._chip_name_pos = pos
         self.chip_tag.setText(self.chip_name)
         
     def name_parser(self):
@@ -120,9 +119,9 @@ class XSEMViewer(ImageViewer):
             if start >= 1 and start <= len(self.image_name) and end >= 1 and end <= len(self.image_name):   
                 return self.image_name[start-1:end].strip(), pos
             else:
-                return None, None
+                return None, pos
         else:
-            return None, None
+            return None, pos
     
     def _refresh(self):
         """Reset current data if new image is loaded"""
@@ -169,6 +168,7 @@ class XSEMViewer(ImageViewer):
     def save_data(self):
         if self._current_data is None and self._current_special_data is None:
             return
+        print('save')
         super().save_data()
         # Update raw data
         if self._current_data is not None:
@@ -197,6 +197,7 @@ class XSEMViewer(ImageViewer):
                     else:
                         self._data_summary = pd.concat([self._data_summary, df], axis=1)
             self.update_summary()
+        
         if self._current_special_data is not None:
             if self.chip_name in self._special_data_summary:
                 for key in self._current_special_data.keys():
@@ -253,19 +254,12 @@ class XSEMViewer(ImageViewer):
             special_data = {(chip_name, column) : cd_list for chip_name, innerDict 
                             in self._special_data_summary.items() for 
                             column, cd_list in innerDict.items()}
-            for i in self._special_data_summary.keys():
-                f = plt.figure(figsize=(8, 12))
-                plt.plot(self._special_data_summary[i]['Left'], self._special_data_summary[i]['Depth'], 'r.')
-                plt.plot(self._special_data_summary[i]['Right'], self._special_data_summary[i]['Depth'], 'b.')
-                plt.xlabel('X (nm)')
-                plt.ylabel('Depth (nm)')
-                plt.show()
-                ff = plt.figure(figsize=(8,12))
-                plt.plot(self._special_data_summary[i]['Bulk_CD'], self._special_data_summary[i]['Depth'], 'b.')
-                plt.xlabel('CD (nm)')
-                plt.ylabel('Depth (nm)')
-                plt.show()
-            pd.DataFrame(special_data).to_excel('SpecialData.xlsx')
+            try:
+                df = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in special_data.items()]))
+            except Exception as e:
+                print(e)
+            print(df.head())
+            df.to_excel('SpecialData.xlsx')
         
     
     def _saveSettings(self, file_name):

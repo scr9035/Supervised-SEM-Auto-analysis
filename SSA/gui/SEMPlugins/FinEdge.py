@@ -132,7 +132,6 @@ class FinEdge(Boundary):
     def _FinStemAutoEdge(self, image, interface=None):
         level1_lvl = np.array([int(self._level1/self._calib)])
         y_lim, x_lim = image.shape
-                
         if interface is None:            
             ref_range = [5, int(y_lim*0.75)]
             channel_count, reference, lvl_cd, cd_points, _center, _plateau \

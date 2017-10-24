@@ -100,7 +100,6 @@ class Plugin(QtWidgets.QDialog):
         On close disconnect all artists and events from ImageViewer.
         Note that artists must be appended to `self.artists`.
         """
-        print('call close event')
         self.clean_up()      
         self.plugin_closed.emit()
         self.deleteLater()
@@ -119,6 +118,7 @@ class Plugin(QtWidgets.QDialog):
     def _on_new_image(self, image):
         """Override this method to update your plugin for new images."""
         self.remove_image_artists()
+    
         
     def _update_plugin(self):
         self.plugin_updated.emit()

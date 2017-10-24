@@ -28,6 +28,10 @@ class HoleProperty(Plugin):
         self._new_img = False
         self._auto_holes = None 
         self.set_plugin_param()
+        
+        self._patch_handle_prop = dict(marker='+', markersize=7, color='w', mfc='r', 
+                                 ls='none', alpha=1, visible=True)
+        
         self._show_statistics = True # To implement further based on needs
         
     def set_plugin_param(self, count=0, centers=[], majors=[], minors=[], angles=[]):
@@ -82,7 +86,10 @@ class HoleProperty(Plugin):
         self._image = image
         self.set_plugin_param()
         self.reset_plugin()
-        
+    
+    def _receive_calib(self, calib):
+        self._calib = calib
+    
     def reset_plugin(self):
         # Reset the all widgets based on the plugin information   
         self.plot_patches()
@@ -95,11 +102,10 @@ class HoleProperty(Plugin):
             widget = item.widget()
             widget.deleteLater()
         
-        patch_handle_prop = dict(marker='+', markersize=7, color='w', mfc='r', 
-                                 ls='none', alpha=1, visible=True)
+        
         for i in range(self._count):            
             self._patches[i] = PatchTool(self.image_viewer, maxdist=self.maxdist, 
-                         handle_props=patch_handle_prop)
+                         handle_props=self._patch_handle_prop)
             self._patches[i].center = self._centers[i]
             self._patches[i].major = self._majors[i]
             self._patches[i].minor = self._minors[i]

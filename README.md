@@ -1,20 +1,18 @@
 ## Synopsis
 
-Supervised SEM/STEM image auto-analysis
+Supervised SEM/TEM/STEM image analysis
 
 ## Run
 
-Run the start.py file 
+Run the SIM.py file either in cmd (python SIM.py) or in Spyder
 
 ## API Reference
 
-The package contans two parts: UI and algorithm. 
+The package contans two parts: GUI and algorithms. 
 
-Multiple plugins are currently included. But they are for sepcific images only.
+GUI is based on matplotlib and PyQt5. Scikit-image and other common scientific python packages are utilized as well.
 
-## Tests
-
-Describe and show how to run the tests with code examples.
+Multiple plugins are included. They are for sepcific applicationss only.
 
 ## Contributors
 

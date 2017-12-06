@@ -7,10 +7,10 @@ from PyQt5.QtCore import pyqtSignal
 import numpy as np
 import json
 
-from ..plugins import NormalDist
+from ..plugins import HVDistance
 from ...analysis.channel import IntensInterface, ChannelDepth
 
-class CHEtchDepth(NormalDist):
+class CHEtchDepth(HVDistance):
     """
     data_transfer_sig : pyqtSignal
         Any plugin needs to implement data trasfer sigal or otherwise the image 
@@ -25,21 +25,22 @@ class CHEtchDepth(NormalDist):
     information = '\n'.join(information)
     
     def __init__(self):
-        super().__init__(mode='Vertical', add_right_lim=True, add_bot_lim=True)
+        super().__init__(add_right_lim=True, add_bot_lim=True)
         
         self._auto_CD = self.AutoCHEtchDepth
-        # DYL: Set False so won't show profile in default
         self._show_profile = False
         self.data = {}
-        
+        self._setting_file = self._setting_folder + 'CHDepthSetting.json'
         try:
-            with open('CHDepthSetting.json', 'r') as f:
+            with open(self._setting_file, 'r') as f:
                 setting_dict = json.load(f)
                 self._number_of_channel = setting_dict['Channel']
                 self._scan_to_avg = setting_dict['Scan']
+                self._preset_ref = setting_dict['PresetRef']
         except:
             self._number_of_channel = 20
-            self._scan_to_avg = 3     
+            self._scan_to_avg = 3
+            self._preset_ref = False
         
         self._manual_calib = 1
         self._extra_control_widget.append(QLabel('Manual Calibration (nm/pixel):'))
@@ -63,12 +64,13 @@ class CHEtchDepth(NormalDist):
         self._extra_control_widget.append(self._input_scan_avg)
     
     def clean_up(self):
-        self._saveSettings('CHDepthSetting.json')
+        self._saveSettings(self._setting_file)
         super().clean_up()
     
     def _saveSettings(self, file_name):                
         setting_dict = {'Scan' : self._scan_to_avg,
-                        'Channel' : self._number_of_channel}
+                        'Channel' : self._number_of_channel,
+                        'PresetRef' : self._preset_ref}
         with open(file_name, 'w') as f:
             json.dump(setting_dict, f)
     
@@ -79,7 +81,7 @@ class CHEtchDepth(NormalDist):
     
     def _change_manual_calib(self):
         try:
-            self._manual_calib = float(self._input_manual_calib)
+            self._manual_calib = float(self._input_manual_calib.text())
             self._update_plugin()
         except:
             return
@@ -122,7 +124,7 @@ class CHEtchDepth(NormalDist):
             ref_range = [int(y_lim/10), y_lim]
             ref_line_y = IntensInterface(image, ref_range=ref_range)
         else:
-            ref_line_y = int((interface[0][1] + interface[1][1])/2)  
+            ref_line_y = int((interface[0][1] + interface[1][1])/2) 
             
         channel_count, _depth, _depth_points, channel_center, plateau \
                         = ChannelDepth(image, ref_line_y, threshold=self._threshold, 
@@ -139,4 +141,5 @@ class CHEtchDepth(NormalDist):
             cd_points[num-1-i].append(_depth_points[channel_count-i-spare_channel])
         # DYL: Here depth array must be FLOAT ARRAY in order to use the numpy.nan
         # There is no numpy.nan for INT!!!
-        return num, ref_line_y, length, cd_points
+        line_modes = ['Vertical']
+        return num, ref_line_y, length, cd_points, line_modes

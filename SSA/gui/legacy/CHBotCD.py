@@ -6,13 +6,13 @@
 
 import numpy as np
 import json
-from ..plugins import NormalDist
+from ..plugins import HVDistance
 from ...analysis import ChannelCD
 from PyQt5.QtWidgets import (QLabel, QLineEdit, QComboBox)
 from PyQt5.QtCore import pyqtSignal
 
 
-class CHBotCD(NormalDist):
+class CHBotCD(HVDistance):
     """
     data_transfer_sig : pyqtSignal
         Any plugin needs to implement data trasfer sigal or otherwise the image 
@@ -20,11 +20,6 @@ class CHBotCD(NormalDist):
     """
     name = 'Channel Hole Bot CD Measurements'
     data_transfer_sig = pyqtSignal(list, list, dict)
-#    calib_dict = {'100K' : 1.116503,
-#                  '50K' : 2.233027,
-#                  '20K' : 5.582623,
-#                  '12K' : 9.304371,
-#                  '10K' : 11.16579}
     _lvl_name=['WL17', 'DMY0', 'BCD']
     
     information = ('Measurement level: WL17, DMY0, BCD',
@@ -37,21 +32,21 @@ class CHBotCD(NormalDist):
         self._auto_CD = self.AutoCHBotCD
         # DYL: dictionary to store data corresponding to each levels
         self.data = {}
-        
+        self._setting_file = self._setting_folder + 'CHBotCDSetting.json'
         try:
-            with open('CHBotCDSetting.json', 'r') as f:
+            with open(self._setting_file, 'r') as f:
                 setting_dict = json.load(f)
                 self._WL17 = setting_dict['WL17']
                 self._DMY0 = setting_dict['DMY0']
                 self._scan_to_avg = setting_dict['Scan']
                 self._threshold = setting_dict['Threshold']
-#                self._mag = setting_dict['Mag']
+                self._preset_ref = setting_dict['PresetRef']
         except:
             self._WL17 = 1280
             self._DMY0 = 230
             self._scan_to_avg = 3
             self._threshold = 100
-#            self._mag = '50K'
+            self._preset_ref = True
 
         self._manual_calib = 1
         self._extra_control_widget.append(QLabel('Manual Calibration (nm/pixel):'))
@@ -60,15 +55,6 @@ class CHBotCD(NormalDist):
             self._input_manual_calib.setText(str(self._manual_calib))
         self._input_manual_calib.editingFinished.connect(self._change_manual_calib)
         self._extra_control_widget.append(self._input_manual_calib)
-            
-#        self._calib = self.calib_dict[self._mag]
-#        self._extra_control_widget.append(QLabel('Magnification:'))
-#        self._choose_mag = QComboBox()
-#        for key in self.calib_dict.keys():
-#            self._choose_mag.addItem(key)
-#        self._choose_mag.setCurrentText(self._mag)
-#        self._choose_mag.activated[str].connect(self._set_mag)
-#        self._extra_control_widget.append(self._choose_mag)
         
         self._extra_control_widget.append(QLabel('WL17 Level:'))
         self._input_WL17 = QLineEdit()
@@ -95,14 +81,15 @@ class CHBotCD(NormalDist):
         self._extra_control_widget.append(self._input_thres)
     
     def clean_up(self):
-        self._saveSettings('CHBotCDSetting.json')
+        self._saveSettings(self._setting_file)
         super().clean_up()
 
     def _saveSettings(self, file_name):                
         setting_dict = {'WL17' : self._WL17, 
                         'DMY0' : self._DMY0,
                         'Scan' : self._scan_to_avg,
-                        'Threshold' : self._threshold}
+                        'Threshold' : self._threshold,
+                        'PresetRef' : self._preset_ref}
         with open(file_name, 'w') as f:
             json.dump(setting_dict, f)
     
@@ -130,13 +117,9 @@ class CHBotCD(NormalDist):
                             = ChannelCD(image, bot_lvls, find_ref=interface, 
                                 scan=self._scan_to_avg, threshold=self._threshold, 
                                 noise=1000, iteration=0, mode='down')
-                         
-        return channel_count, ref_line, bot_cd, bot_cd_points
-   
-#    def _set_mag(self, magnification):
-#        self._mag = magnification
-#        self._calib = self.calib_dict[self._mag]
-#        self._update_plugin()
+        
+        line_modes = ['Horizontal', 'Horizontal', 'Horizontal']
+        return channel_count, ref_line, bot_cd, bot_cd_points, line_modes
     
     def data_transfer(self):
         """Function override to transfer raw data to measurement data """
@@ -162,7 +145,7 @@ class CHBotCD(NormalDist):
         
     def _change_manual_calib(self):
         try:
-            self._manual_calib = float(self._input_manual_calib)
+            self._manual_calib = float(self._input_manual_calib.text())
             self._update_plugin()
         except:
             return

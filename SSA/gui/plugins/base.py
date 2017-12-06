@@ -43,12 +43,12 @@ class Plugin(QtWidgets.QDialog):
 
     # Signals used when viewers are linked to the Plugin output.
     plugin_updated = pyqtSignal()
-    plugin_started = pyqtSignal(int)
+#    plugin_started = pyqtSignal(int)
     plugin_closed = pyqtSignal()
     
 
-    def __init__(self, image_filter=None, height=0, width=400, useblit=True,
-                 dock='bottom'):
+    def __init__(self, image_filter=None, layout=QtWidgets.QGridLayout, 
+                 height=0, width=400, useblit=True, dock='bottom'):
         init_qtapp()
         super().__init__()
         self.setAttribute(Qt.WA_DeleteOnClose)
@@ -57,8 +57,8 @@ class Plugin(QtWidgets.QDialog):
         self.image_viewer = None
 
         self.setWindowTitle(self.name)
-        self.layout = QtWidgets.QGridLayout(self)
-        self.resize(width, height)
+        self.layout = layout(self)
+#        self.resize(width, height)
         self.row = 0
 
         self.arguments = []
@@ -91,9 +91,9 @@ class Plugin(QtWidgets.QDialog):
         self.activateWindow()
         self.raise_()
         # Emit signal with x-hint so new windows can be displayed w/o overlap.
-        size = self.frameGeometry()
-        x_hint = size.x() + size.width()
-        self.plugin_started.emit(x_hint)
+#        size = self.frameGeometry()
+#        x_hint = size.x() + size.width()
+#        self.plugin_started.emit(x_hint)
 
     def closeEvent(self, event):
         """Override. Called when call QWidget.close() programmatically
@@ -118,7 +118,6 @@ class Plugin(QtWidgets.QDialog):
     def _on_new_image(self, image):
         """Override this method to update your plugin for new images."""
         self.remove_image_artists()
-    
         
     def _update_plugin(self):
         self.plugin_updated.emit()

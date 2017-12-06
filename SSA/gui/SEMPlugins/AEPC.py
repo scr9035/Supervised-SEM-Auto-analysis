@@ -2,50 +2,48 @@
 #
 # Copyright © 2017 Dongyao Li
 
-from PyQt5.QtWidgets import (QLabel, QLineEdit, QComboBox)
-from PyQt5.QtCore import pyqtSignal
-import numpy as np
-import json
-
 from ..plugins import NormalDist
 from ...analysis import ChannelCD
+from ...analysis.channel import IntensInterface, AEPCSpecial
+import numpy as np
+from PyQt5.QtWidgets import (QLabel, QLineEdit, QComboBox)
+from PyQt5.QtCore import pyqtSignal
+import json
 
-class CHMaxBowCD(NormalDist):
-    """
-    data_transfer_sig : pyqtSignal
-        Any plugin needs to implement data trasfer sigal or otherwise the image 
-        viewer won't be able to receive the data
-    """
-    name = 'Channel Hole Max Bow CD Measurements'
+class AEPC(NormalDist):
+    name = 'Testing Plugin For AEPC'
     data_transfer_sig = pyqtSignal(list, list, dict)
-    _lvl_name=['Max Bow']
-    
-    information = ('Measurement level: Max Bow (maximum CD through channel)',
-                   'Vertical height: 1; Iteration: 0;')
+    _lvl_name=['TopCD', 'MidCD', 'BotCD', 'Depth']
+
+    information = ('Measurement of top, mid, and bottom CD',
+                   '')
     information = '\n'.join(information)
     
     def __init__(self):
-        super().__init__(mode='Horizontal', add_bot_lim=True, add_top_lim=True)
-        self._auto_CD = self.AutoCHMaxBowCD
+        super().__init__()
+        self._auto_CD = self.AutoAEPC
+        self._show_profile = False
         self.data = {}
+        self._algo = 'SEM'
         
         try:
-            with open('CHMaxBowSetting.json', 'r') as f:
+            with open('AEPCSetting.json', 'r') as f:
                 setting_dict = json.load(f)
                 self._scan_to_avg = setting_dict['Scan']
                 self._threshold = setting_dict['Threshold']
         except:
-            self._scan_to_avg = 5     
-            self._threshold = 100
+            self._scan_to_avg = 5
+            self._threshold = 100        
+
+        self._manual_calib = 1   
         
-        self._manual_calib = 1
         self._extra_control_widget.append(QLabel('Manual Calibration (nm/pixel):'))
         self._input_manual_calib = QLineEdit()
         if self._calib is np.nan:
             self._input_manual_calib.setText(str(self._manual_calib))
         self._input_manual_calib.editingFinished.connect(self._change_manual_calib)
         self._extra_control_widget.append(self._input_manual_calib)
-                
+        
         self._extra_control_widget.append(QLabel('Scan to Avg:'))
         self._input_scan_avg = QLineEdit()
         self._input_scan_avg.setText(str(self._scan_to_avg))
@@ -57,9 +55,17 @@ class CHMaxBowCD(NormalDist):
         self._input_thres.setText(str(self._threshold))
         self._input_thres.editingFinished.connect(self._change_thres)
         self._extra_control_widget.append(self._input_thres)
-    
+        
+        self._extra_control_widget.append(QLabel('Algorithm:'))
+        self._choose_algo = QComboBox()
+        self._choose_algo.addItem('STEM')
+        self._choose_algo.addItem('SEM')
+        self._choose_algo.setCurrentText(self._algo)
+        self._choose_algo.activated[str].connect(self._set_algo)
+        self._extra_control_widget.append(self._choose_algo)
+        
     def clean_up(self):
-        self._saveSettings('CHMaxBowSetting.json')
+        self._saveSettings('AEPCSetting.json')
         super().clean_up()
     
     def _saveSettings(self, file_name):                
@@ -68,10 +74,9 @@ class CHMaxBowCD(NormalDist):
         with open(file_name, 'w') as f:
             json.dump(setting_dict, f)
     
-    def _receive_calib(self, calib):
-        super()._receive_calib(calib)
-        if self._calib is not np.nan:
-            self._input_manual_calib.setEnabled(False)
+    def _set_algo(self, algo):
+        self._algo = algo
+        self._update_plugin()
     
     def _change_manual_calib(self):
         try:
@@ -79,7 +84,7 @@ class CHMaxBowCD(NormalDist):
             self._update_plugin()
         except:
             return
-
+    
     def _change_scan_avg(self):
         try:
             self._scan_to_avg = int(self._input_scan_avg.text())
@@ -101,8 +106,13 @@ class CHMaxBowCD(NormalDist):
         except:
             return
     
+    def _receive_calib(self, calib):
+        super()._receive_calib(calib)
+        if self._calib is not np.nan:
+            self._input_manual_calib.setEnabled(False) 
+    
     def _update_plugin(self):
-        self._on_new_image(self._full_image, same_img=True)
+        self._on_new_image(self._full_image, same_img=True)        
         super()._update_plugin()
         
     def data_transfer(self):
@@ -111,30 +121,31 @@ class CHMaxBowCD(NormalDist):
             calib = self._calib * 10**9
         else:
             calib = self._manual_calib
-            
-        raw_data = np.transpose(self._cd_data) * calib   
+        
+        raw_data = np.transpose(self._cd_data) * calib
+        
         for i in range(self._lvl_count):
             self.data[self._lvl_name[i]] = raw_data[i]
         hori_header = ['Ch %i' %n for n in range(1,self._channel_count+1)]
         self.data_transfer_sig.emit(self._lvl_name, hori_header, self.data)
-    
-    def AutoCHMaxBowCD(self, image, interface=None):
-            
+        
+    def AutoAEPC(self, image, interface=None):
+        if self._calib is not np.nan:
+            calib = self._calib * 10**9
+        else:
+            calib = self._manual_calib
+        
+        bot_diff = round(8/calib)
+        
         y_lim, x_lim = image.shape
-        bow_lvl = np.arange(10, y_lim, self._scan_to_avg)
-        
-        
-        # DYL: Don't need reference here
-        channel_count, ref_line, bow_full_cd, bow_full_points, _center, _plateau \
-                        = ChannelCD(image, bow_lvl, algo='fit', find_ref=None, 
-                                    scan=self._scan_to_avg, threshold=self._threshold, 
-                                    noise=1000, iteration=0)
-                        
-        max_bow_cd = [[] for _ in range(channel_count)]
-        max_bow_points = [[] for _ in range(channel_count)]
-        for i in range(channel_count):
-            bow_idx = np.argmax(bow_full_cd[i])
-            max_bow_cd[i].append(bow_full_cd[i][bow_idx])
-            max_bow_points[i].append(bow_full_points[i][bow_idx])
-        # DYL: return reference line as None
-        return channel_count, None, max_bow_cd, max_bow_points
+        if interface is None:
+            ref_range = [int(y_lim/10), y_lim]
+            ref_line_y = IntensInterface(image, ref_range=ref_range)
+        else:
+            ref_line_y = int((interface[0][1] + interface[1][1])/2)  
+        channel_count, cd, cd_points, channel_center, plateau, line_modes \
+                        = AEPCSpecial(image, ref_line_y, threshold=self._threshold, 
+                                       scan=self._scan_to_avg, mag='high', 
+                                       algo=self._algo, 
+                                       bot_diff = bot_diff)        
+        return channel_count, ref_line_y, cd, cd_points, line_modes

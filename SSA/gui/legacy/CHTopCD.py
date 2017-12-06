@@ -2,8 +2,7 @@
 #
 # Copyright © 2017 Dongyao Li
 
-
-from ..plugins import NormalDist
+from ..plugins import HVDistance
 from ...analysis import ChannelCD
 import numpy as np
 from PyQt5.QtWidgets import (QLabel, QLineEdit, QComboBox)
@@ -11,17 +10,12 @@ from PyQt5.QtCore import pyqtSignal
 import json
 
 
-class CHTopCD(NormalDist):
+class CHTopCD(HVDistance):
     """
     data_transfer_sig : pyqtSignal
         Any plugin needs to implement data trasfer sigal or otherwise the image 
         viewer won't be able to receive the data
     """
-#    calib_dict = {'100K' : 1.116503,
-#                  '50K' : 2.233027,
-#                  '20K' : 5.582623,
-#                  '12K' : 9.304371,
-#                  '10K' : 11.16579}
     name = 'Channel Hole Top CD Measurements'
     data_transfer_sig = pyqtSignal(list, list, dict)
     _lvl_name=['TEOS','SSL2']
@@ -31,35 +25,28 @@ class CHTopCD(NormalDist):
     information = '\n'.join(information)
     
     def __init__(self):
-        super().__init__(mode='Horizontal')
+        
+        super().__init__()
         self._auto_CD = self.AutoCHTopCD
         # DYL: dictionary to store data corresponding to each levels
         self.data = {}
-        
+        self._setting_file = self._setting_folder + 'CHTopCDSetting.json'
         try:
-            with open('CHTopCDSetting.json', 'r') as f:
+            with open(self._setting_file, 'r') as f:
                 setting_dict = json.load(f)
                 self._TEOS = setting_dict['TEOS']
                 self._SSL2 = setting_dict['SSL2']
                 self._scan_to_avg = setting_dict['Scan']
                 self._threshold = setting_dict['Threshold']
-#                self._mag = setting_dict['Mag']
+                self._preset_ref = setting_dict['PresetRef']
         except:
             self._TEOS = 100
             self._SSL2 = 420
             self._scan_to_avg = 5
-            self._threshold = 100        
-#            self._mag = '50K'
+            self._threshold = 100
+            self._preset_ref = False
 
-        self._manual_calib = 1   
-#        self._calib = self.calib_dict[self._mag]
-#        self._extra_control_widget.append(QLabel('Magnification:'))
-#        self._choose_mag = QComboBox()
-#        for key in self.calib_dict.keys():
-#            self._choose_mag.addItem(key)
-#        self._choose_mag.setCurrentText(self._mag)
-#        self._choose_mag.activated[str].connect(self._set_mag)
-#        self._extra_control_widget.append(self._choose_mag)
+        self._manual_calib = 1
         
         self._extra_control_widget.append(QLabel('Manual Calibration (nm/pixel):'))
         self._input_manual_calib = QLineEdit()
@@ -87,25 +74,21 @@ class CHTopCD(NormalDist):
         self._extra_control_widget.append(self._input_thres)
     
     def clean_up(self):
-        self._saveSettings('CHTopCDSetting.json')
+        self._saveSettings(self._setting_file)
         super().clean_up()
     
     def _saveSettings(self, file_name):                
         setting_dict = {'TEOS' : self._TEOS, 
                         'SSL2' : self._SSL2,
                         'Scan' : self._scan_to_avg,
-                        'Threshold' : self._threshold}
+                        'Threshold' : self._threshold,
+                        'PresetRef' : self._preset_ref}
         with open(file_name, 'w') as f:
             json.dump(setting_dict, f)
     
-#    def _set_mag(self, magnification):
-#        self._mag = magnification
-#        self._calib = self.calib_dict[self._mag]
-#        self._update_plugin()
-    
     def _change_manual_calib(self):
         try:
-            self._manual_calib = float(self._input_manual_calib)
+            self._manual_calib = float(self._input_manual_calib.text())
             self._update_plugin()
         except:
             return
@@ -199,4 +182,5 @@ class CHTopCD(NormalDist):
             TEOS_points[i].append(TEOS_full_points[i][bow_idx])
         cd_points = np.concatenate((TEOS_points, SSL2_points), axis=1)
         channel_CD = np.concatenate((TEOS_cd, SSL2_cd), axis=1)
-        return channel_count, ref_line, channel_CD, cd_points
+        line_modes = ['Horizontal', 'Horizontal']
+        return channel_count, ref_line, channel_CD, cd_points, line_modes

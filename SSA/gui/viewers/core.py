@@ -136,8 +136,6 @@ class ImageViewer(QMainWindow):
     # Signal that the original image has been changed
     new_image = pyqtSignal(np.ndarray)
     self_calib = pyqtSignal(float)
-    
-# TODO: Add splash screen
 
     def __init__(self, useblit=True, label_lvl=690):
         '''
@@ -420,7 +418,6 @@ class ImageViewer(QMainWindow):
         with PdfPages('pdf_record\\' + self._img_names[self._img_idx] + '.pdf') as pdf:
             pdf.savefig(self.fig)
         
-    
     def _show_current_img(self):
         self_calib = False
         with read_tiff.TiffFile(self._path_list[self._img_idx]) as tif:

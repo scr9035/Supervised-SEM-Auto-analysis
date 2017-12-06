@@ -7,10 +7,10 @@ from PyQt5.QtCore import pyqtSignal
 import numpy as np
 import json
 
-from ..plugins import NormalDist
+from ..plugins import HVDistance
 from ...analysis.channel import IntensInterface, RemainMask
 
-class CHRMask(NormalDist):
+class CHRMask(HVDistance):
     """
     data_transfer_sig : pyqtSignal
         Any plugin needs to implement data trasfer sigal or otherwise the image 
@@ -24,18 +24,20 @@ class CHRMask(NormalDist):
     information = '\n'.join(information)
     
     def __init__(self):
-        super().__init__(mode='Vertical')
+        super().__init__()
         self._auto_CD = self.AutoCHRMask
         # DYL: Set False so won't show profile in default
         self._show_profile = False
         self.data = {}
-        
+        self._setting_file = self._setting_folder + 'CHRMaskSetting.json'
         try:
-            with open('CHRMaskSetting.json', 'r') as f:
+            with open(self._setting_file, 'r') as f:
                 setting_dict = json.load(f)
                 self._scan_to_avg = setting_dict['Scan']
+                self._preset_ref = setting_dict['PresetRef']
         except:
-            self._scan_to_avg = 1   
+            self._scan_to_avg = 1
+            self._preset_ref = False
         
         self._manual_calib = 1 
         self._extra_control_widget.append(QLabel('Manual Calibration (nm/pixel):'))
@@ -52,11 +54,12 @@ class CHRMask(NormalDist):
         self._extra_control_widget.append(self._input_scan_avg)
     
     def clean_up(self):
-        self._saveSettings('CHRMaskSetting.json')
+        self._saveSettings(self._setting_file)
         super().clean_up()
     
     def _saveSettings(self, file_name):                
-        setting_dict = {'Scan' : self._scan_to_avg}
+        setting_dict = {'Scan' : self._scan_to_avg,
+                        'PresetRef' : self._preset_ref}
         with open(file_name, 'w') as f:
             json.dump(setting_dict, f)
 
@@ -75,7 +78,7 @@ class CHRMask(NormalDist):
     
     def _change_manual_calib(self):
         try:
-            self._manual_calib = float(self._input_manual_calib)
+            self._manual_calib = float(self._input_manual_calib.text())
             self._update_plugin()
         except:
             return
@@ -120,4 +123,5 @@ class CHRMask(NormalDist):
         
         length[0][1] = ref_line_y - bulk_top
         cd_points[0][1] = [[int(x_lim/2), bulk_top], [int(x_lim/2), ref_line_y]]
-        return channel_count, ref_line_y, length, cd_points
+        line_modes = ['Vertical', 'Vertical']
+        return channel_count, ref_line_y, length, cd_points, line_modes

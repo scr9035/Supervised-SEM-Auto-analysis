@@ -6,6 +6,8 @@ from ..plugins import HoleProperty
 from ...analysis import GeneralProcess
 from ...analysis import holes
 import numpy as np
+from skimage import exposure
+import matplotlib.pyplot as plt
 
 from PyQt5.QtCore import pyqtSignal
 
@@ -37,10 +39,23 @@ class CHCap(HoleProperty):
         
         self.data = {'Missing' : 0,
                      'Total' : 0}
-        threshold = GeneralProcess.GaussianMixThres(image[350:370, :], components=2, scale=scale)
-         
-        bi_fig_fit = GeneralProcess.BinaryConverter(image, thres=threshold, scale=scale, 
-                                     iteration=iteration)
+#        thres = GeneralProcess.GaussianMixThres(image[350:370, :], components=2, scale=scale)
+        data_cdf, data_cdf_center = exposure.cumulative_distribution(image)
+        img_pdf, pdf_centers = exposure.histogram(image)
+        plt.plot(pdf_centers, img_pdf)
+        plt.show()
+        
+        mu1 = data_cdf_center[np.argmin(np.abs(data_cdf - 0.1))]
+        sigma1 = mu1 - data_cdf_center[np.argmin(np.abs(data_cdf - 0.04))]
+        mu2 = data_cdf_center[np.argmin(np.abs(data_cdf - 0.5))]
+        sigma2 = data_cdf_center[np.argmin(np.abs(data_cdf - 0.8))] - mu2
+        separation = data_cdf_center[np.argmin(np.abs(data_cdf - 0.4))]
+        bounds = ([0, np.min(data_cdf_center), 0, separation, 0], 
+                   [np.inf, separation, np.inf, np.max(data_cdf_center), np.inf])       
+        thres = GeneralProcess.BiGaussCDFThres(data_cdf, data_cdf_center,
+                                               init=[0.1, mu1, sigma1, mu2, sigma2],
+                                               bounds=bounds)
+        bi_fig_fit = GeneralProcess.BinaryConverter(image, thres=thres, scale=scale)
             
         open_count, cap_count, tot_count, miss_point, lines = \
             holes.GridMatching(bi_fig_fit, grid='rect', open_limit=self._open_limit, angle_diff=self._angle_diff)

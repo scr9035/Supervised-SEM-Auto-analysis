@@ -85,6 +85,10 @@ class LineTool(CanvasToolBase):
     def end_points(self):
         return self._end_pts - 0.5
     
+    @property
+    def mode(self):
+        return self._mode
+    
     @end_points.setter
     def end_points(self, pts):
         pts = np.asarray(pts) + 0.5
@@ -307,6 +311,10 @@ class LimLineTool(CanvasToolBase):
         # To compensate the 0.5 added in the display. Here x and y are real
         # position in the canvas. This function is to handle the movement of lines
         self.end_points = self._end_pts - 0.5
+    
+    @property
+    def mode(self):
+        return self._mode
     
     @property
     def end_points(self):

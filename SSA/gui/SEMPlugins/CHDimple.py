@@ -36,8 +36,7 @@ class CHDimple(HoleProperty):
         super()._update_plugin()
     
     def _AutoDimple(self, image):
-        bi_fig = GeneralProcess.BinaryConverter(image, thres='otsu', scale=1, 
-                                                iteration=2)
+        bi_fig = GeneralProcess.BinaryConverter(image, thres='otsu', scale=1)
         
         regions = holes.TopGeometryAnalysis(bi_fig)
         

@@ -11,6 +11,8 @@ import skimage.morphology as skimorph
 import skimage.filters as skifilter
 import sklearn.neighbors as skneighbor 
 import scipy.odr as spyodr
+import scipy as spy
+from scipy.ndimage import gaussian_filter
 import sklearn.mixture as skMixture
 from scipy.optimize import curve_fit
 from skimage import exposure
@@ -19,20 +21,81 @@ def PixDistribution(image, bin_num=1000):
     values, bins = np.histogram(image, bins=bin_num)
     max_count = max(values)
     fig, ax = plt.subplots()
-    plt.plot(bins[:-1], values, lw=2, c='k')
     return max_count, ax, fig
 
-def GaussianMixThres(image, components=2, means_init=None, n_init=3, scale=0.5):
-    gmix = skMixture.GaussianMixture(n_components=components, n_init=n_init,
-                                     means_init=means_init,
-                                     )
-    hist, bin_centers = exposure.histogram(image)
-    gmix.fit(image.flatten()[:, np.newaxis])
-    mean1, mean2 = np.sort(gmix.means_[:,0])
+
+def BiGaussCDF(cutoff, A, mu1, sigma1, mu2, sigma2):
+    B = 1.0 / (np.sqrt(2*np.pi) * (A * sigma1 + sigma2))
+    return 0.5 + A * B * sigma1 * spy.special.erf((cutoff - mu1)/(np.sqrt(2)*sigma1)) * np.sqrt(np.pi/2) \
+            + B * sigma2 * spy.special.erf((cutoff - mu2)/(np.sqrt(2)*sigma2)) * np.sqrt(np.pi/2)
+    
+def BiGauss(x, A, mu1, sigma1, mu2, sigma2):
+    B = 1 / (np.sqrt(2*np.pi) * (A * sigma1 + sigma2))
+    return B * (A * np.exp(-(x-mu1)**2/(2*sigma1**2)) + np.exp(-(x-mu2)**2/(2*sigma2**2)))
+    
+def BiGaussCDFThres(img_cdf, cdf_centers, init=None, bounds=None, plot=False,
+                    parameters=False): 
+    if init is None:
+        popt, pcov = curve_fit(BiGaussCDF, cdf_centers, img_cdf)
+    else:
+        popt, pcov = curve_fit(BiGaussCDF, cdf_centers, img_cdf, p0=init, bounds=bounds)
+        if plot:
+            plt.plot(cdf_centers, BiGauss(cdf_centers, *init), label='init')
+    
+    A, mu1, sigma1, mu2, sigma2 = popt         
+    
+    viable_range = np.arange(int(mu1), int(mu2))
+    pdf = BiGauss(viable_range, *popt)
+    thres = viable_range[np.argmin(pdf)]
+    
+    if thres >= mu1 + 0.9 * (mu2 - mu1):
+        thres = mu1 + 0.6 * (mu2 - mu1)
+    elif thres <= mu1 + 0.1 * (mu2 - mu1):
+        thres = mu1 + 0.2 * (mu2 - mu1)
+        
+    if plot:
+        plt.plot(cdf_centers, BiGauss(cdf_centers, *popt), label='fit')
+        plt.legend(loc=2)
+        plt.show()
+        print('Plot of CDF')
+        plt.plot(cdf_centers, img_cdf, label='original')
+        plt.plot(cdf_centers, BiGaussCDF(cdf_centers, *popt), label='fit')
+        if init is not None:
+            plt.plot(cdf_centers, BiGaussCDF(cdf_centers, *init), label='init')
+        plt.vlines(mu1, 0, 1)
+        plt.vlines(mu2, 0, 1)
+        plt.vlines(thres, 0, 1, 'r')
+        plt.legend(loc=2)
+        plt.show()
+    if parameters:
+        return thres, popt
+    else:
+        return thres
+    
+def GaussianMixThres(image, components=2, means_init=None, n_init=3, scale=0.5,
+                     high_lim=None):
+    gmix = skMixture.GaussianMixture(n_components=components, covariance_type='diag',
+                                     n_init=n_init,
+                                     means_init=means_init)
+    try:
+        if high_lim is not None:
+            data = image.flatten()
+            data[data >= high_lim] = np.nan
+            data = data[~np.isnan(data)]
+            data = data.flatten()[:, np.newaxis]
+        else:
+            data = image.flatten()[:, np.newaxis]
+        gmix.fit(data)
+        mean1, mean2 = np.sort(gmix.means_[:,0])
+    except Exception as e:
+        print(str(e))
+        
+    hist, bin_centers = exposure.histogram(data)
     plt.plot(bin_centers, hist)
-    plt.vlines(mean1, 0, 40)
-    plt.vlines(mean2, 0, 40)
+    plt.vlines(mean1, 0, np.max(hist))
+    plt.vlines(mean2, 0, np.max(hist))
     plt.show()
+    
     thres = mean1 + (mean2 - mean1) * scale
     if (mean2 - mean1) / thres < 0.2:
         return None
@@ -68,7 +131,8 @@ def KernelThresh(image, intens=[0, 40000], num=4000, bandwidth=2000,
         plt.show()
         return thres
 
-def BinaryConverter(image, thres='otsu', scale=1, iteration=1):
+
+def BinaryConverter(image, thres='otsu', scale=1):
     """Convert the image into a binary image.
     
     Parameters
@@ -93,18 +157,23 @@ def BinaryConverter(image, thres='otsu', scale=1, iteration=1):
     else:
         thrs = thres
     bi_fig = image <= (thrs * scale)
-#    bi_fig = ndimage.binary_opening(bi_fig, iterations=iteration)
-#    bi_fig = ndimage.binary_closing(bi_fig)
+    
+#    skimorph.remove_small_holes(bi_fig, connectivity=1, min_size=64, in_place=True)    
+#    skimorph.remove_small_objects(bi_fig, connectivity=1, min_size=64, in_place=True)
+#    bi_fig = skimorph.binary_opening(bi_fig, selem=np.ones([3,3]))
+#    bi_fig = skimorph.binary_closing(bi_fig, selem=np.ones([3,3]))
+    bi_fig = skimorph.binary_opening(bi_fig)
+    bi_fig = skimorph.binary_closing(bi_fig)
     return bi_fig
 
 def BinaryDialateEdge(bi_img):
-    dialate_bi = skimorph.binary_dilation(bi_img, skimorph.diamond(1)).astype(np.uint8)
+    dialate_bi = skimorph.binary_dilation(bi_img, selem=np.ones([3,3])).astype(np.uint8)
     edge = dialate_bi - bi_img
     edge = edge[1:-1,1:-1]
     return edge
 
 def BinaryErosionEdge(bi_img):
-    ero_bi = skimorph.binary_erosion(bi_img, skimorph.diamond(1)).astype(np.uint8)
+    ero_bi = skimorph.binary_erosion(bi_img, selem=np.ones([3,3])).astype(np.uint8)
     edge = ero_bi - bi_img
     edge = edge[1:-1,1:-1]
     return edge
@@ -184,6 +253,101 @@ def AnisotropicFilter2D(image, iteration, kappa, delta_t=0.2):
         de_noised[:-1, :] = de_noised[:-1, :] - flux_Y
     return de_noised
 
+
+def ScaleFourth(x, kappa):
+    return 1 - np.exp(-3.31488 / (x/kappa**2)**4)
+
+def ReguIsoNonlinear(image, iteration, kappa, sigma=1, delta_t=0.2):
+    """Regularized isotropic nonlinear diffusion
+    
+    Gaussian regularization
+    """
+    if len(image.shape) == 1:
+        filtered_img = image.astype(float)
+        for i in range(iteration):
+            smoothed = gaussian_filter(filtered_img, sigma)
+            grad = np.gradient(smoothed)
+            diff_coef = ScaleFourth(grad**2, kappa)
+            delta_img = np.zeros(filtered_img.shape)
+            
+            coef = diff_coef[:-1] + diff_coef[1:]
+            
+            image_2_1 = filtered_img[1:] - filtered_img[:-1]
+            
+            delta_img[1:] += - 0.5 * coef * image_2_1
+            delta_img[:-1] += 0.5 * coef * image_2_1
+            delta_img = delta_img
+            
+            filtered_img += delta_img * delta_t
+            
+    elif len(image.shape) == 2:
+        filtered_img = image.astype(float)
+        for i in range(iteration):    
+            smoothed = gaussian_filter(filtered_img, sigma)
+            axisY_grad, axisX_grad = np.gradient(smoothed)
+            grad_sq = axisX_grad**2 + axisY_grad**2
+            diff_coef = ScaleFourth(grad_sq, kappa)
+            
+            delta_img = np.zeros(filtered_img.shape)
+            
+            image_02_01 = filtered_img[:, 1:] - filtered_img[:,:-1]
+            image_20_10 = filtered_img[1:, :] - filtered_img[:-1, :]
+            
+            coef_1 = diff_coef[:, 1:] + diff_coef[:, :-1]
+            coef_2 = diff_coef[1:, :] + diff_coef[:-1, :]
+            
+            delta_img[:, :-1] += 0.5 * coef_1 * image_02_01
+            delta_img[:, 1:] += -0.5 * coef_1 * image_02_01
+            delta_img[:-1, :] += 0.5 * coef_2 * image_20_10
+            delta_img[1:, :] += -0.5 * coef_2 * image_20_10
+                            
+            filtered_img += delta_img * delta_t
+        
+    return filtered_img
+
+                        
+def EdgeEnhance2D(image, iteration, kappa, sigma=1, delta_t=0.1):
+    filtered_img = image.astype(float)
+    for i in range(iteration):
+        smoothed = gaussian_filter(filtered_img, sigma)
+        D_a, D_b, D_c = DiffTensor(smoothed, kappa)
+        delta_img = DiffStep2D(filtered_img, D_a, D_b, D_c)
+        filtered_img += delta_img * delta_t             
+    return filtered_img         
+    
+def DiffTensor(image, kappa): 
+    grad_1 = 0.5 * (image[1:, 1:] + image[1:, :-1] - image[:-1, 1:] - image[:-1, :-1])
+    grad_2 = 0.5 * (image[1:, 1:] + image[:-1, 1:] - image[1:, :-1] - image[:-1, :-1])
+    grad_sq = grad_1**2 + grad_2**2
+    
+    grad_sq[grad_sq==0] = 0.00001
+    
+    grad = np.sqrt(grad_sq)
+    eigen_1 = ScaleFourth(grad_sq, kappa)
+    eigen_2 = 1.
+    
+    e_1 = grad_1 / grad
+    e_2 = grad_2 / grad
+    D_a = eigen_1 * e_1**2 + eigen_2 * e_2**2
+    D_b = eigen_2 * e_1**2 + eigen_1 * e_2**2
+    D_c = (eigen_1 - eigen_2) * e_1 * e_2
+    return D_a, D_b, D_c
+
+def DiffStep2D(image, D_a, D_b, D_c):
+    step = np.zeros(image.shape) 
+    A = D_a + D_b + 2 * D_c
+    B = D_a + D_b - 2 * D_c
+    C = D_a - D_b 
+    image_22_11 = image[1:, 1:] - image[:-1, :-1]
+    image_21_12 = image[1:, :-1] - image[:-1, 1:] 
+    step[:-1, :-1] += (image_22_11 * A + image_21_12 * C)
+    step[1:, 1:] += (- image_22_11 * A - image_21_12 * C)
+    step[:-1, 1:] += (image_22_11 * C + image_21_12 * B)
+    step[1:, :-1] += (- image_22_11 * C - image_21_12 * B)
+    step = step * 0.25
+    return step
+
+
 def Logistic(x, x0, y0, k, c):
      y = c / (1 + np.exp(-k*(x - x0))) + y0
      return y
@@ -232,26 +396,36 @@ def LogiGaussian(x, x0, y0, k, c, A, mu, sigma):
     y = c / (1 + np.exp(-k*(x - x0))) + y0 + A * np.exp(-(x - mu)**2 / (2*sigma**2))
     return y
 
-def LGSemEdge(x, y, threshold=100, finess=0.05, orientation='forward'):
+def LGSemEdge(x, y, threshold=100, finess=0.05, orientation='forward', plot=False):
     """
     finess :
         amount of pixel
     mode :
         SEM and STEM are different.
     """
+    
+    guess_peak_idx = np.argmax(y)
+    mu = x[guess_peak_idx]
+    
     if orientation == 'forward':
         ori = 1
         y0 = y[0]
         c = y[-1]-y[0]
         A = np.max(y) - y[-1]
+        if guess_peak_idx != 0:
+            mid = x[np.argmin(np.abs((y[:guess_peak_idx] - (y[0] + y[-1])/2)))]
+        else:
+            mid = x[np.argmin(np.abs((y - (y[0] + y[-1])/2)))]
     elif orientation == 'backward':
         ori = -1
         y0 = y[-1]
         c = y[0]-y[-1]
         A = np.max(y) - y[0]
-
-    mid = x[np.argmin(np.abs(y - (y[0] + y[-1])/2))]   
-    mu = x[np.argmax(y)]
+        if guess_peak_idx != (len(y) - 1):
+            mid = x[guess_peak_idx:][np.argmin(np.abs((y[guess_peak_idx:] - (y[0] + y[-1])/2)))]
+        else:
+            mid = x[np.argmin(np.abs((y - (y[0] + y[-1])/2)))]
+    
     sigma = np.abs(mu - mid)/2
     
     p0 = [mid, y0, ori, c, A, mu, sigma]
@@ -268,17 +442,19 @@ def LGSemEdge(x, y, threshold=100, finess=0.05, orientation='forward'):
             edge = coord[np.argmin(np.abs(fx[:peak+1] - thres))]
         elif orientation == 'backward':
             edge = coord[np.argmin(np.abs(fx[peak:] - thres)) + peak]
-#        plt.plot(x, y)
-#        plt.plot(coord, LogiGaussian(coord, *p0))
-#        plt.plot(coord, LogiGaussian(coord, *popt))
-#        plt.plot([edge, edge], [np.min(y), np.max(y)])
-#        plt.show()        
-    except RuntimeError:
+        
+        if plot:
+            plt.plot(x, y)
+            plt.plot(coord, LogiGaussian(coord, *p0))
+            plt.plot(coord, LogiGaussian(coord, *popt))
+            plt.plot([edge, edge], [np.min(y), np.max(y)])
+            plt.show()     
+    except Exception as e:
+#        print(str(e))
         return None
     return edge
-
-
-def LGStemEdge(x, y, threshold=100, finess=0.05, orientation='forward'):
+    
+def LGStemEdge(x, y, threshold=100, finess=0.05, orientation='forward', plot=False):
     if orientation == 'forward':
         ori = 1
         y0 = y[0]
@@ -306,13 +482,12 @@ def LGStemEdge(x, y, threshold=100, finess=0.05, orientation='forward'):
             edge = coord[np.argmin(np.abs(fx[peak:] - thres)) + peak]
         elif orientation == 'backward':
             edge = coord[np.argmin(np.abs(fx[:peak+1] - thres))]
-             
-        plt.plot(x, y)
-#        plt.plot(coord, LogiGaussian(coord, *p0))
-        plt.plot(coord, LogiGaussian(coord, *popt))
-        plt.plot([edge, edge], [np.min(y), np.max(y)])
-        plt.show()
-        
+        if plot:
+            plt.plot(x, y)
+            plt.plot(coord, LogiGaussian(coord, *p0))
+            plt.plot(coord, LogiGaussian(coord, *popt))
+            plt.plot([edge, edge], [np.min(y), np.max(y)])
+            plt.show()
     except:
         return None
     return edge
@@ -322,10 +497,141 @@ def StraightLine(coef, x):
     """
     return coef[0] * x + coef[1]
 
+def LogiPlateau(x, x0, y0, k1, c, height, k2, left, right):
+
+    y = c / (1 + np.exp(-k1*(x - x0))) + y0 + height / (1 + np.exp(-k2 * (x-left)) + np.exp(k2*(x-right)))
+    return y
+
+def LPSemEdge(x, y, threshold=95, finess=0.05, orientation='forward', plot=False):
+    """
+    finess :
+        amount of pixel
+    """
+    peak = np.argmax(y)
+    peak_intens = y[peak]
+    
+    
+    if orientation == 'forward':
+        ori = 1
+        y0 = y[0]
+        c = y[-1]-y[0]
+        
+        if peak != 0:
+            mid = x[np.argmin(np.abs((y[:peak] - (y[0] + y[-1])/2)))]
+        else:
+            mid = x[np.argmin(np.abs((y - (y[0] + y[-1])/2)))]
+         
+#        left_0 = x[np.argmin(np.abs(y[:peak] - (peak_intens + y[-1]) / 2))]
+        left_0 = mid
+        right_0 = x[peak:][np.argmin(np.abs(y[peak:] - (peak_intens + y[-1]) / 2))]
+        height_0 = peak_intens - y[-1]
+        
+    elif orientation == 'backward':
+        ori = -1
+        y0 = y[-1]
+        c = y[0]-y[-1]
+
+        if peak != (len(y) - 1):
+            mid = x[peak:][np.argmin(np.abs((y[peak:] - (y[0] + y[-1])/2)))]
+        else:
+            mid = x[np.argmin(np.abs((y - (y[0] + y[-1])/2)))]
+        
+        left_0 = x[np.argmin(np.abs(y[:peak] - (peak_intens + y[0]) / 2))]
+        right_0 = mid
+#        right_0 = x[peak:][np.argmin(np.abs(y[peak:] - (peak_intens + y[0]) / 2))]
+        height_0 = peak_intens - y[0]
+        
+    p0 = [mid, y0, ori, c, height_0, 1, left_0, right_0]
+    bounds = ([np.min(x), 0, -np.inf, 0, 0, 1, np.min(x), np.min(x)],
+             [np.max(x), np.max(y), np.inf, np.inf, np.inf, np.inf, np.max(x),
+              np.max(x)])
+    try:
+        popt, pcov = curve_fit(LogiPlateau, x, y, p0=p0, bounds=bounds)
+        N = int((x[-1] - x[0])/finess + 1)
+        coord = np.linspace(x[0], x[-1], num=N)
+        fx = LogiPlateau(coord, *popt)
+        peak = np.argmax(fx)
+
+        low_edge = popt[0] - np.log(100.0/threshold-1) / popt[2]
+        
+        if orientation == 'forward':
+            thres = (np.max(fx) - fx[-1]) * threshold / 100 + fx[-1]
+            hi_edge = coord[np.argmin(np.abs(fx[:peak+1] - thres))]
+
+        elif orientation == 'backward':
+            thres = (np.max(fx) - fx[0]) * threshold / 100 + fx[0]
+            hi_edge = coord[np.argmin(np.abs(fx[peak:] - thres)) + peak]
+#        edge = 0.5 * (low_edge + hi_edge)
+        edge = low_edge
+        if plot:
+            plt.plot(x, y)
+            plt.plot(x, popt[4]/(1 + np.exp(- popt[5] * (x-popt[6])) +
+                     np.exp(popt[5] * (x-popt[7]))))
+            plt.plot(coord, LogiPlateau(coord, *p0))
+            plt.plot(coord, fx)
+            plt.plot([edge, edge], [np.min(y), np.max(y)])
+            plt.show()
+    except Exception as e:
+        print(str(e))
+        edge = x[np.argmax(y)]
+    return edge
+
+
+def GradSlop(profile, threshold=0.2, iteration=100, sigma=5, kappa=0.2,
+             delta_t=0.1, plot=False):
+        kappa_profile = kappa * (np.max(profile) - np.min(profile))
+        smooth = ReguIsoNonlinear(profile, iteration, kappa_profile,
+                                  sigma=sigma, delta_t=delta_t)
+        if plot:
+            plt.plot(profile)
+            plt.plot(smooth)
+            plt.show()
+                
+        gradient = np.gradient(smooth)
+#        kappa_grad = kappa * (np.max(gradient) - np.min(gradient))
+#        smooth_grad = ReguIsoNonlinear(gradient, iteration, kappa_grad,
+#                                       sigma=5, delta_t=delta_t)
+        smooth_grad = gradient
+        
+        grad_pos_thres = threshold * np.max(smooth_grad)
+        grad_neg_thres = threshold * np.min(smooth_grad)
+        if plot:
+            plt.plot(gradient)
+            plt.plot(smooth_grad)
+            plt.plot([0, len(profile)], [grad_pos_thres, grad_pos_thres])
+            plt.plot([0, len(profile)], [grad_neg_thres, grad_neg_thres])
+            plt.show()
+            
+        hess = np.gradient(gradient)
+#        kappa_hess = threshold * (np.max(hess) - np.min(hess))
+#        smooth_hess = ReguIsoNonlinear(hess, iteration, kappa_hess,
+#                                       sigma=sigma, delta_t=delta_t)
+        smooth_hess = hess
+        if plot:
+            plt.plot(hess)
+            plt.plot(smooth_hess)
+            plt.show()
+        try:
+            up = []
+            down = []
+            mask = (smooth_hess > 0).astype(int)
+            crossing = np.nonzero(mask[1:] - mask[:-1])[0]
+            for idx in crossing:
+                if smooth_grad[idx] > grad_pos_thres:
+                    up.append(idx)
+                if smooth_grad[idx] < grad_neg_thres:
+                    down.append(idx)
+        except Exception as e:
+            print(str(e))
+        print(up)
+        print(down)
+        return np.array(up), np.array(down)
+
+
 def WLCRoughness(image, bi_image, low_dist=20, high_dist=350, channel_count=7,
                  downward=300, elevate=5):
     """Edge points along the channels in XSEM
-    
+
     Parameters
     ----------
     bi_image : (N, M) ndarray
@@ -336,18 +642,20 @@ def WLCRoughness(image, bi_image, low_dist=20, high_dist=350, channel_count=7,
         High level pixel, start from the etch bottom
     channel_count : int
         Total number of channels
-    
+
     Returns
     -------
     full_channel_points : list
         All points for each side
-        
+ 
     bots_x : tuple of int
-        Coordinate of two x position to draw the bottom limit line in original figure
-    
+        Coordinate of two x position to draw the bottom limit line in original
+        figure
+
     bots_y : tuple of int
-        Coordinate of two y position to draw the bottom limit line in original figure
-    
+        Coordinate of two y position to draw the bottom limit line in original
+        figure
+
     """
     y_lim, x_lim = bi_image.shape
     # Create edge based on dialation

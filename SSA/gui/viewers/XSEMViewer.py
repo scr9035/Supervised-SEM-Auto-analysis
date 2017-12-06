@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import os
 from .core import ImageViewer
 from ..plugins import Plugin
 from PyQt5.QtWidgets import (QLabel, QLineEdit, QTableWidget, QTableWidgetItem, 
@@ -18,16 +19,23 @@ class XSEMViewer(ImageViewer):
     """
     def __init__(self):
         super().__init__()
+        
+        self._setting_path = os.getcwd() + '\\Settings' + '\\ViewerSetting.json'
         try:
-            with open('ViewerSetting.json', 'r') as f:
+            with open(self._setting_path, 'r') as f:
                 setting_dic = json.load(f)
                 self._chip_name_pos = setting_dic['chip_name']
                 self._label_lvl = setting_dic['label_level']
+                self._result_path = setting_dic['result_folder']
         except:
             self._chip_name_pos = [1,3]
             self._label_lvl = 690
+            self._result_path = os.getcwd()
+            
         self._enter_label_lvl.setText(str(self._label_lvl))
-        
+        if not os.path.isdir(self._result_path):
+            self._result_path = os.getcwd()
+            
         self.setWindowTitle("Supervised SEM Auto-analysis")
         
         self._data_summary = pd.DataFrame()
@@ -46,6 +54,9 @@ class XSEMViewer(ImageViewer):
         self.excel_name = QLineEdit()
         self.excel_name.setText('DataSummary')
         self.relevant_information = QLabel(' ')
+        self.set_results_path = QLineEdit()
+        self.set_results_path.setText(self._result_path)
+        self.set_results_path.editingFinished.connect(self._change_result_path)
 
         self.right_panel.addWidget(QLabel('Image Name:'), 0, 0)
         self.right_panel.addWidget(self.image_tag, 0, 1)
@@ -55,6 +66,9 @@ class XSEMViewer(ImageViewer):
         self.right_panel.addWidget(self.excel_name, 0, 5)
         self.right_panel.addWidget(QLabel('Chip Name:'), 1, 0)
         self.right_panel.addWidget(self.chip_tag, 1, 1, 1, 1)
+        self.right_panel.addWidget(QLabel('Result Folder:'), 1, 2)
+        self.right_panel.addWidget(self.set_results_path, 1, 3, 1, 3)
+        
         self.right_panel.addWidget(self.relevant_information, 2, 0, 1, 3)
         
         table_section = Plugin(dock='bottom')
@@ -123,6 +137,20 @@ class XSEMViewer(ImageViewer):
         else:
             return None, pos
     
+    def _change_result_path(self):
+        path = self.set_results_path.text()
+        if not os.path.isdir(path):
+            self.set_results_path.setText(self._result_path)
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle('Setting Error')
+            msg.setText('Illegal or Non-existing Path')
+            msg.setInformativeText('Please make sure the result folder exists.')
+            msg.setStandardButtons(QMessageBox.Ok)
+            msg.show()
+        else:
+            self._result_path = self.set_results_path.text()
+    
     def _refresh(self):
         """Reset current data if new image is loaded"""
         super()._refresh()
@@ -156,19 +184,17 @@ class XSEMViewer(ImageViewer):
             self._table_current.setItem(i, 1, QTableWidgetItem('%.1f' %std))           
         self._table_current.resizeColumnsToContents()
         # copy the data into dataframe
-        self._current_data = copy.deepcopy(data) # Need to make a new copy 
+        self._current_data = copy.deepcopy(data) 
     
     @pyqtSlot(dict)
     def special_data_receive(self, data):
         """Slot to transfer special data from plugin
         """
         self._current_special_data = data
-        
-                                        
+                                           
     def save_data(self):
         if self._current_data is None and self._current_special_data is None:
             return
-        print('save')
         super().save_data()
         # Update raw data
         if self._current_data is not None:
@@ -180,7 +206,7 @@ class XSEMViewer(ImageViewer):
                                   np.concatenate((self._data_raw[self.chip_name][measurement], 
                                                      self._current_data[measurement]))
             else:
-                self._data_raw[self.chip_name] = copy.deepcopy(self._current_data)   # Create new copy                    
+                self._data_raw[self.chip_name] = copy.deepcopy(self._current_data)                    
             # Update summary
             for measurement in self._current_data:
                 raw_data = self._data_raw[self.chip_name][measurement]
@@ -238,16 +264,23 @@ class XSEMViewer(ImageViewer):
 #        raw_df = pd.DataFrame.from_dict(reform_raw_data)
 #        raw_df.to_excel('raw_data.xlsx')
         
-        self._saveSettings('ViewerSetting.json')        
+        self._saveSettings(self._setting_path)
         super().closeEvent(event)
     
     def _saveExcel(self):
-        self._data_summary.to_excel(self.excel_name.text() + '.xlsx')
+        if not os.path.exists(self._result_path):
+            os.makedirs(self._result_path)
+            
+        writer = pd.ExcelWriter(self._result_path + '\\' + self.excel_name.text() + '.xlsx')
+        self._data_summary.to_excel(writer, sheet_name='Summary')
+#        self._data_summary.to_excel(self.excel_name.text() + '.xlsx', sheet_name=self.excel_name.text())
         reform_raw_data = {(outerKey, innerKey): pd.Series(series) for outerKey, innerDict in 
                   self._data_raw.items() for innerKey, series in innerDict.items()}
         raw_df = pd.DataFrame.from_dict(reform_raw_data)
-        raw_df.to_excel('raw_data.xlsx')
         
+        raw_df.to_excel(writer, sheet_name='Raw Data')
+        writer.save()
+                
         """ The following is under development for special data transfer
         """
         if len(self._special_data_summary.keys()) > 0:
@@ -259,11 +292,15 @@ class XSEMViewer(ImageViewer):
             except Exception as e:
                 print(e)
             print(df.head())
-            df.to_excel('SpecialData.xlsx')
+            df.to_excel(self._result_path + '\\' + 'SpecialData.xlsx')
         
     
     def _saveSettings(self, file_name):
-        setting_dic = {'chip_name':self._chip_name_pos, 'label_level':self._label_lvl}
+        setting_dic = {'chip_name' : self._chip_name_pos, 
+                       'label_level' : self._label_lvl,
+                       'result_folder' : self._result_path}
+        if not os.path.exists('Settings'):
+            os.makedirs('Settings')
         with open(file_name, 'w') as f:
             json.dump(setting_dic, f)
             

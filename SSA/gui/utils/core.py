@@ -115,10 +115,13 @@ class FigureCanvas(FigureCanvasQTAgg):
     """Canvas for displaying images."""
     def __init__(self, figure, **kwargs):
         self.fig = figure
+        size_policy = kwargs.pop('SizePolicy', QtWidgets.QSizePolicy.Expanding)
         FigureCanvasQTAgg.__init__(self, self.fig)
         FigureCanvasQTAgg.setSizePolicy(self,
-                                        QtWidgets.QSizePolicy.Expanding,
-                                        QtWidgets.QSizePolicy.Expanding)
+#                                        QtWidgets.QSizePolicy.Expanding,
+#                                        QtWidgets.QSizePolicy.Expanding)
+                                        size_policy,
+                                        size_policy)
         FigureCanvasQTAgg.updateGeometry(self)
 
     def resizeEvent(self, event):
@@ -134,8 +137,9 @@ def new_canvas(*args, **kwargs):
     num = max(allnums) + 1 if allnums else 1
 
     FigureClass = kwargs.pop('FigureClass', Figure)
+    size_policy = kwargs.pop('SizePolicy', QtWidgets.QSizePolicy.Expanding)
     figure = FigureClass(*args, **kwargs)
-    canvas = FigureCanvas(figure)
+    canvas = FigureCanvas(figure, SizePolicy=size_policy)
     fig_manager = FigureManagerQT(canvas, num)
     return fig_manager.canvas
 
